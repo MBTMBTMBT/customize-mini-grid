@@ -21,10 +21,27 @@ The layout of the environment is defined in a .txt file, with each character rep
 
     WWWWWWWWWW
     WEEEEEEEEW
-    WEEEEEEEEW
+    WEEEEEEWDW
     WEEEELLWDW
-    WEEEEEKWGW
+    WKEEEEKWGW
     WWWWWWWWWW
+
+Color Representation in Grid Layouts
+
+To illustrate the color representation for easier identification of certain objects, consider the following grid layouts 
+with Color Representation for Easy Identification
+
+    WWWWWWWWWW
+    WEEEEEEEEW
+    WEEEEEEWBW
+    WEEEELLWRW
+    WBEEEERWGW
+    WWWWWWWWWW
+
+In this color-coded representation:
+
+    B (Blue): Represents the Ball object for easy identification.
+    R (Red): Indicates the Agent's current position and interaction points like keys and doors, making them stand out for easier location.
 
 Key Operations for Manual Control
 
