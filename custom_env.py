@@ -1,5 +1,4 @@
 from typing import Optional
-from minigrid.core.constants import COLOR_NAMES, IDX_TO_COLOR
 from minigrid.core.grid import Grid
 from minigrid.core.mission import MissionSpace
 from minigrid.core.world_object import *
