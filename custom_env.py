@@ -23,7 +23,7 @@ class CustomEnvFromFile(MiniGridEnv):
             txt_file_path: str,
             size: Optional[int] = None,
             agent_start_pos: tuple[int, int] = (1, 1),
-            agent_start_dir: int = 0,
+            agent_start_dir: int = 2,
             custom_mission: str = "Explore and interact with objects.",
             max_steps: Optional[int] = None,
             **kwargs,
