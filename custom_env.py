@@ -87,7 +87,7 @@ class CustomEnvFromFile(MiniGridEnv):
 
 if __name__ == "__main__":
     env = CustomEnvFromFile(
-        txt_file_path='test.txt',
+        txt_file_path='simple_test.txt',
         custom_mission="Find the key and open the door.",
         render_mode="human"
     )
