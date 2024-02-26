@@ -23,14 +23,50 @@ ACTION_NAMES = {
 }
 
 
+class PrioritizedReplayBuffer:
+    def __init__(self, capacity, alpha=0.6):
+        self.capacity = capacity
+        self.alpha = alpha
+        self.buffer = []
+        self.priorities = np.zeros((capacity,), dtype=np.float32)
+        self.pos = 0
+
+    def add(self, state, action, reward, next_state, done):
+        max_prio = max(self.priorities) if self.buffer else 1.0
+        if len(self.buffer) < self.capacity:
+            self.buffer.append((state, action, reward, next_state, done))
+        else:
+            self.buffer[self.pos] = (state, action, reward, next_state, done)
+        self.priorities[self.pos] = max_prio ** self.alpha
+        self.pos = (self.pos + 1) % self.capacity
+
+    def sample(self, batch_size, beta=0.4):
+        if len(self.buffer) == self.capacity:
+            prios = self.priorities
+        else:
+            prios = self.priorities[:self.pos]
+        probabilities = prios ** self.alpha / np.sum(prios ** self.alpha)
+
+        indices = np.random.choice(len(self.buffer), batch_size, p=probabilities)
+        samples = [self.buffer[idx] for idx in indices]
+
+        total = len(self.buffer)
+        weights = (total * probabilities[indices]) ** (-beta)
+        weights /= weights.max()
+        return samples, indices, np.array(weights, dtype=np.float32)
+
+    def update_priorities(self, indices, errors):
+        for idx, error in zip(indices, errors):
+            self.priorities[idx] = error + 1e-5  # Avoid zero priority
+
+
 # Define the DQN Agent
 class DQNAgent:
-    def __init__(self, state_space: int, action_space: int, lr: float = 1e-4, gamma: float = 0.99,
-                 epsilon_start: float = 1.0, epsilon_end: float = 0.01, epsilon_decay: float = 0.995):
+    def __init__(self, action_space: int, lr: float = 1e-2, gamma: float = 0.99,
+                 epsilon_start: float = 1.0, epsilon_end: float = 0.1, epsilon_decay: float = 0.9995):
         """
         Initialize the DQN agent.
 
-        :param state_space: int, Dimensionality of the state space.
         :param action_space: int, Number of actions.
         :param lr: float, Learning rate for the optimizer.
         :param gamma: float, Discount factor for future rewards.
@@ -38,9 +74,8 @@ class DQNAgent:
         :param epsilon_end: float, Minimum value of epsilon.
         :param epsilon_decay: float, Decay rate of epsilon per episode.
         """
-        self.state_space = state_space
         self.action_space = action_space
-        self.memory = deque(maxlen=10000)  # Experience replay buffer
+        # self.memory = deque(maxlen=10000)  # Experience replay buffer
         self.lr = lr
         self.gamma = gamma
         self.epsilon = epsilon_start
@@ -48,19 +83,24 @@ class DQNAgent:
         self.epsilon_decay = epsilon_decay
         self.model = self.build_model()
         self.optimizer = optim.Adam(self.model.parameters(), lr=self.lr)
+        self.memory = PrioritizedReplayBuffer(100000)
 
     def build_model(self) -> nn.Module:
         """
-        Build the neural network model.
-
-        :return: Sequential model of the neural network.
+        Build the CNN model with adaptive pooling for processing variable size image inputs.
         """
         model = nn.Sequential(
-            nn.Linear(self.state_space, 64),  # Input layer to hidden layer 1
-            nn.ReLU(),  # Activation function for hidden layer 1
-            nn.Linear(64, 64),  # Hidden layer 1 to hidden layer 2
-            nn.ReLU(),  # Activation function for hidden layer 2
-            nn.Linear(64, self.action_space)  # Hidden layer 2 to output layer
+            nn.Conv2d(3, 32, kernel_size=4, stride=1),
+            nn.ReLU(),
+            nn.Conv2d(32, 64, kernel_size=4, stride=1),
+            nn.ReLU(),
+            # nn.Conv2d(64, 64, kernel_size=3, stride=1),
+            # nn.ReLU(),
+            nn.AdaptiveAvgPool2d(output_size=(7, 7)),  # Output size: 7x7
+            nn.Flatten(),
+            nn.Linear(64 * 7 * 7, 512),
+            nn.ReLU(),
+            nn.Linear(512, self.action_space)
         )
         return model
 
@@ -93,23 +133,19 @@ class DQNAgent:
         self.memory.append((state, action, reward, next_state, done))
 
     def replay(self, batch_size: int):
-        """
-        Train the model using a mini-batch of transitions from the replay buffer.
-
-        :param batch_size: int, The size of the mini-batch to train on.
-        """
-        if len(self.memory) < batch_size:  # Ensure there are enough samples in the memory
+        if len(self.memory.buffer) < batch_size:  # Ensure there are enough samples in the memory
             return
 
-        minibatch = random.sample(self.memory, batch_size)  # Sample a mini-batch
+        minibatch, indices, weights = self.memory.sample(batch_size, beta=0.4)  # Use PER to sample
         states, actions, rewards, next_states, dones = zip(*minibatch)
 
         # Convert to tensors
-        states = torch.FloatTensor(states).squeeze(1)
-        actions = torch.LongTensor(actions).view(-1, 1)
-        rewards = torch.FloatTensor(rewards)
-        next_states = torch.FloatTensor(next_states).squeeze(1)
-        dones = torch.BoolTensor(dones)
+        states = torch.stack(states).squeeze(1)
+        next_states = torch.stack(next_states).squeeze(1)
+        actions = torch.tensor(actions).view(-1, 1)
+        rewards = torch.tensor(rewards).view(-1, 1)
+        dones = torch.tensor(dones, dtype=torch.bool).view(-1, 1)
+        weights = torch.tensor(weights, dtype=torch.float32)
 
         # Q-values for the current states
         Q_values = self.model(states).gather(1, actions)
@@ -119,33 +155,48 @@ class DQNAgent:
         max_next_Q_values = next_Q_values.max(1)[0].unsqueeze(1)
         expected_Q_values = rewards + (self.gamma * max_next_Q_values * (~dones))
 
-        # Compute loss
-        loss = F.mse_loss(Q_values, expected_Q_values)
+        # Compute weighted loss
+        loss = (weights * F.mse_loss(Q_values, expected_Q_values, reduction='none')).mean()
 
         # Backpropagation
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
 
+        # Update priorities in the replay buffer
+        new_priorities = abs(
+            Q_values - expected_Q_values).detach().numpy() + 1e-5  # Adding a small constant to ensure no zero priority
+        self.memory.update_priorities(indices, new_priorities)
+
         # Epsilon decay
         if self.epsilon > self.epsilon_end:
             self.epsilon *= self.epsilon_decay
 
-    def create_image_with_action(self, image, action):
+    def create_image_with_action(self, image, action, step_number, reward):
         """
-        Creates an image with the action text overlay.
-        Assumes image is in the correct format for matplotlib (e.g., uint8, normalized if needed).
+        Creates an image with the action text and additional details overlay.
+
+        Parameters:
+        - image: The image array in the correct format for matplotlib.
+        - action: The action taken in this step.
+        - step_number: The current step number.
+        - reward: The reward received after taking the action.
         """
-        # Convert action number to descriptive name
+        # Convert action number to descriptive name and prepare the text
         action_text = ACTION_NAMES.get(action, f"Action {action}")
+        details_text = f"Step: {step_number}, Reward: {reward}"
 
         # Normalize or convert the image if necessary
         image = image.astype(np.uint8)  # Ensure image is in uint8 format for display
 
         fig, ax = plt.subplots()
         ax.imshow(image)
+        # Position the action text
         ax.text(0.5, -0.1, action_text, color='white', transform=ax.transAxes,
                 ha="center", fontsize=12, bbox=dict(facecolor='red', alpha=0.5))
+        # Position the details text (step number and reward)
+        ax.text(0.5, -0.15, details_text, color='white', transform=ax.transAxes,
+                ha="center", fontsize=12, bbox=dict(facecolor='blue', alpha=0.5))
         ax.axis('off')
 
         # Convert the Matplotlib figure to an image array and close the figure to free memory
@@ -155,34 +206,39 @@ class DQNAgent:
 
         return img_array
 
-    def save_trajectory_as_gif(self, trajectory, folder="trajectories", filename="trajectory.gif"):
+    def save_trajectory_as_gif(self, trajectory, rewards, folder="trajectories", filename="trajectory.gif"):
         """
-        Saves the trajectory as a GIF in a specified folder.
+        Saves the trajectory as a GIF in a specified folder, including step numbers and rewards.
+
+        Parameters:
+        - trajectory: List of tuples, each containing (image, action).
+        - rewards: List of rewards for each step in the trajectory.
         """
         # Ensure the target folder exists
         os.makedirs(folder, exist_ok=True)
         filepath = os.path.join(folder, filename)
 
-        images_with_actions = [self.create_image_with_action(img, action) for img, action in trajectory]
-        imageio.mimsave(filepath, images_with_actions, fps=1)
+        images_with_actions = [self.create_image_with_action(img, action, step_number, rewards[step_number])
+                               for step_number, (img, action) in enumerate(trajectory)]
+        imageio.mimsave(filepath, images_with_actions, fps=1.5)
 
 
-def preprocess_observation(obs: dict) -> np.ndarray:
+def preprocess_observation(obs: dict) -> torch.Tensor:
     """
-    Preprocess the observation obtained from the environment.
+    Preprocess the observation obtained from the environment to be suitable for the CNN.
 
-    This function extracts the 'image' part of the observation, which is assumed
-    to be a grid or visual representation of the environment's current state, and
-    flattens it into a 1D numpy array.
+    This function extracts and normalizes the 'image' part of the observation.
 
     :param obs: dict, The observation dictionary received from the environment.
                 Expected to have a key 'image' containing the visual representation.
-    :return: np.ndarray, The flattened image observation.
+    :return: torch.Tensor, The normalized image observation.
     """
     # Extract the 'image' array from the observation dictionary
     image_obs = obs['image']
-    # Flatten the image array to create a 1D representation of the state
-    return np.ravel(image_obs)
+    # Normalize the image to [0, 1]
+    image_obs = image_obs / 255.0
+    # Convert to PyTorch tensor and add a batch dimension
+    return torch.FloatTensor(image_obs).permute(2, 0, 1).unsqueeze(0)  # Change to (C, H, W) and add batch dimension
 
 
 if __name__ == "__main__":
@@ -192,47 +248,44 @@ if __name__ == "__main__":
     # Determine the shape of the 'image' observation space to calculate the state space
     # The 'image' space is expected to be a 3D array (e.g., width x height x RGB channels)
     image_shape = env.observation_space.spaces['image'].shape  # type: tuple
-    # Calculate the total number of elements in the flattened 'image' array
-    state_space = np.prod(image_shape)  # type: int
 
     # Retrieve the number of possible actions from the environment's action space
     action_space = env.action_space.n  # type: int
 
     # Initialize the DQN agent with the state space and action space dimensions
-    agent = DQNAgent(state_space, action_space)
+    agent = DQNAgent(action_space)
 
     # Set the number of episodes to run the training for
     episodes = 100  # type: int
     # Set the batch size for experience replay; using 1 for this example
-    batch_size = 1  # type: int
+    batch_size = 32  # type: int
 
     # Main training loop
     for e in range(episodes):
         trajectory = []  # Initialize the trajectory list to record each step for the GIF
+        rewards = []  # Initialize the rewards list for the episode
         obs, _ = env.reset()  # Reset the environment at the start of each episode and preprocess the initial observation
         state = preprocess_observation(obs)
         # For GIF creation, keep the original 'image' observation for visualization
         state_img = obs['image']  # Assuming 'image' is the RGB image of the state
-        # Ensure the state is correctly shaped as a 2D array (batch size of 1 x state space)
-        state = np.reshape(state, [1, state_space])
 
         # Iterate through steps within the episode
         for time in range(env.max_steps):
             action = agent.act(state)  # Agent selects an action based on the current state
             next_obs, reward, terminated, truncated, info = env.step(action)  # Environment executes the action and returns the next observation and other details
             next_state = preprocess_observation(next_obs)
-            # Keep the raw image of the next state for GIF creation
-            next_state_img = next_obs['image']
+            next_state_img = next_obs['image']  # Keep the raw image of the next state for GIF creation
+            rewards.append(reward)  # Append the received reward to the rewards list
 
             # Append the current state's image and action to the trajectory
             trajectory.append((env.render(), action))
 
-            # Process the next observation to get the next state
-            next_state = np.reshape(next_state, [1, state_space])
             # Determine if the episode has ended, either by termination or truncation
             done = terminated or truncated
-            # Store the transition in the agent's memory
-            agent.remember(state, action, reward, next_state, done)
+
+            # Adjusted to use the new method of adding experiences with an error term
+            agent.memory.add(state, action, reward, next_state, terminated or truncated)
+
             # Update the current state to be the next state
             state = next_state
             state_img = next_state_img  # Update state_img for the next iteration
@@ -243,8 +296,8 @@ if __name__ == "__main__":
                 break
 
             # If there are enough transitions in memory, perform a replay step
-            if len(agent.memory) > batch_size:
+            if len(agent.memory.buffer) > batch_size:
                 agent.replay(batch_size)
 
         # After each episode, save the recorded trajectory as a GIF
-        agent.save_trajectory_as_gif(trajectory, filename=f"trajectory_{e}.gif")
+        agent.save_trajectory_as_gif(trajectory, rewards, filename=f"trajectory_{e}.gif")
