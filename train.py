@@ -24,7 +24,7 @@ ACTION_NAMES = {
 
 
 class PrioritizedReplayBuffer:
-    def __init__(self, capacity, alpha=0.6):
+    def __init__(self, capacity, alpha=0.8):
         self.capacity = capacity
         self.alpha = alpha
         self.buffer = []
@@ -83,7 +83,7 @@ class DQNAgent:
         self.epsilon_decay = epsilon_decay
         self.model = self.build_model()
         self.optimizer = optim.Adam(self.model.parameters(), lr=self.lr)
-        self.memory = PrioritizedReplayBuffer(100000)
+        self.memory = PrioritizedReplayBuffer(1000)
         self.target_model = copy.deepcopy(self.model)  # Assuming self.model is your online network
 
     def build_model(self) -> nn.Module:
@@ -217,7 +217,7 @@ class DQNAgent:
 
         images_with_actions = [self.create_image_with_action(img, action, step_number, rewards[step_number])
                                for step_number, (img, action) in enumerate(trajectory)]
-        imageio.mimsave(filepath, images_with_actions, fps=1.5)
+        imageio.mimsave(filepath, images_with_actions, fps=3)
 
 
 def preprocess_observation(obs: dict) -> torch.Tensor:
@@ -296,7 +296,7 @@ def run_training(
 
 if __name__ == "__main__":
     # Create an environment instance wrapped to provide fully observable states
-    env1 = FullyObsWrapper(CustomEnvFromFile(txt_file_path='simple_test_corridor.txt', render_mode='rgb_array', size=8))
+    env1 = FullyObsWrapper(CustomEnvFromFile(txt_file_path='simple_test_corridor.txt', render_mode='rgb_array', size=8, max_steps=100))
 
     # Determine the shape of the 'image' observation space to calculate the state space
     # The 'image' space is expected to be a 3D array (e.g., width x height x RGB channels)
@@ -306,17 +306,18 @@ if __name__ == "__main__":
     action_space = env1.action_space.n  # type: int
 
     # Initialize the DQN agent with the state space and action space dimensions
-    agent = DQNAgent(action_space, lr=0.5e-4, gamma=0.99)
+    agent = DQNAgent(action_space, lr=5e-5, gamma=0.99)
+    agent.memory = PrioritizedReplayBuffer(10000)
 
     # Set the number of episodes to run the training for
     episodes = 50  # type: int
     # Set the batch size for experience replay; using 1 for this example
-    batch_size = 16  # type: int
+    batch_size = 32  # type: int
 
     run_training(env1, agent, episodes=episodes, batch_size=batch_size)
 
     # Create an environment instance wrapped to provide fully observable states
-    env2 = FullyObsWrapper(CustomEnvFromFile(txt_file_path='simple_test_door_key.txt', render_mode='rgb_array', size=8))
+    env2 = FullyObsWrapper(CustomEnvFromFile(txt_file_path='simple_test_door_key.txt', render_mode='rgb_array', size=8, max_steps=150))
 
     # Determine the shape of the 'image' observation space to calculate the state space
     # The 'image' space is expected to be a 3D array (e.g., width x height x RGB channels)
@@ -326,12 +327,13 @@ if __name__ == "__main__":
     action_space = env2.action_space.n  # type: int
 
     # Set the number of episodes to run the training for
-    episodes = 50  # type: int
+    episodes = 100  # type: int
     # Set the batch size for experience replay; using 1 for this example
     batch_size = 16  # type: int
 
     # reset agent's exploration rate and buffer
     agent.epsilon = 1.0
-    agent.memory = PrioritizedReplayBuffer(100000)
+    agent.epsilon_decay = 0.99
+    agent.memory = PrioritizedReplayBuffer(10000)
 
     run_training(env2, agent, episodes=episodes, batch_size=batch_size)
