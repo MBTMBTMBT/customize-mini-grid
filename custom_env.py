@@ -10,7 +10,7 @@ class CustomEnvFromFile(MiniGridEnv):
     def __init__(
             self,
             txt_file_path: str,
-            size: int = 10,
+            size: Optional[int] = None,
             agent_start_pos: tuple[int, int] = (1, 1),
             agent_start_dir: int = 0,
             custom_mission: str = "Explore and interact with objects.",
@@ -18,16 +18,26 @@ class CustomEnvFromFile(MiniGridEnv):
             **kwargs,
     ) -> None:
         self.txt_file_path = txt_file_path
+        self.layout_size = self.determine_layout_size() if size is None else size
         super().__init__(
             mission_space=MissionSpace(mission_func=lambda: custom_mission),
-            grid_size=size,
+            grid_size=self.layout_size,
             see_through_walls=False,
-            max_steps=max_steps or 4 * size ** 2,
+            max_steps=max_steps or 4 * self.layout_size ** 2,
             **kwargs,
         )
         self.agent_start_pos = agent_start_pos
         self.agent_start_dir = agent_start_dir
         self.mission = custom_mission
+
+    def determine_layout_size(self) -> int:
+        """Determine the layout size from the file."""
+        with open(self.txt_file_path, 'r') as file:
+            sections = file.read().split('\n\n')
+            layout_lines = sections[0].strip().split('\n')
+            height = len(layout_lines)
+            width = max(len(line) for line in layout_lines)
+            return max(width, height)
 
     def _gen_grid(self, width: int, height: int) -> None:
         self.grid = Grid(width, height)
