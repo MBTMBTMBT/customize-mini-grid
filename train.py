@@ -347,7 +347,7 @@ if __name__ == "__main__":
     action_space = example_env.action_space.n
     agent = DQNAgent(observation_channels=image_shape[-1], action_space=action_space, lr=1e-4, gamma=0.99,
                      device=device)
-    agent.memory = PrioritizedReplayBuffer(10000)
+    agent.memory = PrioritizedReplayBuffer(2**16)
 
     # Training settings
     episodes_per_env = {
