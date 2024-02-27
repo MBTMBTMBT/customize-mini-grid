@@ -149,15 +149,28 @@ class DQNAgent:
         self.memory.append((state, action, reward, next_state, done))
 
     def replay(self, batch_size: int):
+        # Function to pad images within each batch to the same size
+        def pad_images(images):
+            # Find the max width and height in the batch
+            max_height = max(image.shape[1] for image in images)
+            max_width = max(image.shape[2] for image in images)
+
+            # Pad images to the max width and height
+            padded_images = [F.pad(image, (0, max_width - image.shape[2], 0, max_height - image.shape[1])) for image in
+                             images]
+            return torch.stack(padded_images)
+
         if len(self.memory.buffer) < batch_size:  # Ensure there are enough samples in the memory
             return
 
         minibatch, indices, weights = self.memory.sample(batch_size, beta=0.4)  # Use PER to sample
         states, actions, rewards, next_states, dones = zip(*minibatch)
 
-        # Convert to tensors
-        states = torch.stack(states).squeeze(1).to(self.device)
-        next_states = torch.stack(next_states).squeeze(1).to(self.device)
+        # Preprocess and pad states and next_states
+        states = pad_images([torch.FloatTensor(state) for state in states]).squeeze(1).to(self.device)
+        next_states = pad_images([torch.FloatTensor(state) for state in next_states]).squeeze(1).to(
+            self.device)
+
         actions = torch.tensor(actions, device=self.device).view(-1, 1)
         rewards = torch.tensor(rewards, device=self.device).view(-1, 1)
         dones = torch.tensor(dones, dtype=torch.bool, device=self.device).view(-1, 1)
@@ -332,45 +345,41 @@ def run_training(
 
 
 if __name__ == "__main__":
-    # device
+    # Device configuration
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
     # List of environments to train on
     environment_files = [
         'simple_test_corridor.txt',
+        'simple_test_corridor_long.txt',
+        'simple_test_maze_small.txt',
         'simple_test_door_key.txt',
         # Add more file paths as needed
     ]
 
-    # Initial setup for the agent
-    # Note: The initial setup for the agent assumes that the observation space and action space
-    # dimensions do not change significantly across environments. If they do, adjustments are needed.
-    # Setup an example environment to initialize the agent properly
-    example_env = RGBImgObsWrapper(FullyObsWrapper(
-        CustomEnvFromFile(txt_file_path=environment_files[0], render_mode='rgb_array', size=8, max_steps=256)))
-    image_shape = example_env.observation_space.spaces['image'].shape
-    action_space = example_env.action_space.n
-    agent = DQNAgent(observation_channels=image_shape[-1], action_space=action_space, lr=1e-4, gamma=0.99,
-                     device=device)
-    agent.memory = PrioritizedReplayBuffer(2**16)
-
     # Training settings
     episodes_per_env = {
         'simple_test_corridor.txt': 100,
-        'simple_test_door_key.txt': 150,
+        'simple_test_corridor_long.txt': 100,
+        'simple_test_maze_small.txt': 100,
+        'simple_test_door_key.txt': 100,
         # Define episodes for more environments as needed
     }
     batch_size = 32
 
     for env_file in environment_files:
-        # Create an environment instance for the current file
-        env = RGBImgObsWrapper(
-            FullyObsWrapper(CustomEnvFromFile(txt_file_path=env_file, render_mode='rgb_array', size=8, max_steps=256)))
+        # Initialize environment
+        env = RGBImgObsWrapper(FullyObsWrapper(CustomEnvFromFile(txt_file_path=env_file, render_mode='rgb_array', size=None, max_steps=512)))
+        image_shape = env.observation_space.spaces['image'].shape
+        action_space = env.action_space.n
 
-        # Reset agent's exploration rate and buffer for each new environment
+        # Initialize DQN agent for the current environment
+        agent = DQNAgent(observation_channels=image_shape[-1], action_space=action_space, lr=1e-4, gamma=0.99, device=device)
+        agent.memory = PrioritizedReplayBuffer(2**16)  # Use a large buffer size
+
+        # Reset agent's exploration rate for each new environment
         agent.epsilon = 0.5
         agent.epsilon_decay = 0.99
-        # agent.memory = PrioritizedReplayBuffer(10000)
 
         # Fetch the number of episodes for the current environment
         episodes = episodes_per_env.get(env_file, 100)  # Default to 100 episodes if not specified
