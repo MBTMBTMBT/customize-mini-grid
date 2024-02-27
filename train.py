@@ -2,16 +2,15 @@ import matplotlib.pyplot
 import torch
 import torch.nn as nn
 import torch.optim as optim
-import torch.nn.functional as F
 import torchvision.transforms as transforms
 import numpy as np
-import random
-from minigrid.wrappers import FullyObsWrapper, RGBImgObsWrapper, ActionBonus
+from torch.distributions import Categorical
+from minigrid.wrappers import FullyObsWrapper, RGBImgObsWrapper
 from custom_env import CustomEnvFromFile
 import imageio
 import matplotlib.pyplot as plt
 import os
-import copy
+import torch.nn.functional as F
 
 
 ACTION_NAMES = {
@@ -62,140 +61,126 @@ class PrioritizedReplayBuffer:
             self.priorities[idx] = error + 1e-5  # Avoid zero priority
 
 
-# Define the DQN Agent
-class DQNAgent:
-    def __init__(self, observation_channels: int, action_space: int, lr: float = 1e-2, gamma: float = 0.99,
-                 epsilon_start: float = 1.0, epsilon_end: float = 0.1, epsilon_decay: float = 0.95, device: str = 'cpu'):
-        """
-        Initialize the DQN agent.
-
-        :param action_space: int, Number of actions.
-        :param lr: float, Learning rate for the optimizer.
-        :param gamma: float, Discount factor for future rewards.
-        :param epsilon_start: float, Starting value of epsilon for the epsilon-greedy policy.
-        :param epsilon_end: float, Minimum value of epsilon.
-        :param epsilon_decay: float, Decay rate of epsilon per episode.
-        """
-        self.obs_channels = observation_channels
+class PPOPolicyNetwork(nn.Module):
+    def __init__(self, observation_channels, action_space):
+        super(PPOPolicyNetwork, self).__init__()
+        self.observation_channels = observation_channels
         self.action_space = action_space
-        # self.memory = deque(maxlen=10000)  # Experience replay buffer
+
+        # Convolutional layers
+        self.conv_layers = nn.Sequential(
+            nn.Conv2d(observation_channels, 32, kernel_size=8, stride=4),
+            nn.ReLU(),
+            nn.Conv2d(32, 64, kernel_size=4, stride=2),
+            nn.ReLU(),
+            nn.Conv2d(64, 64, kernel_size=3, stride=1),
+            nn.ReLU(),
+            nn.AdaptiveAvgPool2d(output_size=(7, 7)),
+            nn.Flatten(),
+        )
+
+        # Fully connected layer for action logits
+        self.fc_action = nn.Sequential(
+            nn.Linear(7 * 7 * 64, 512),
+            nn.ReLU(),
+            nn.Linear(512, action_space),
+        )
+
+        # Fully connected layer for state value estimate
+        self.fc_value = nn.Sequential(
+            nn.Linear(7 * 7 * 64, 512),
+            nn.ReLU(),
+            nn.Linear(512, 1),
+        )
+
+    def forward(self, x):
+        x = self.conv_layers(x)
+        action_logits = self.fc_action(x)
+        state_value = self.fc_value(x).squeeze(-1)  # Remove extra dimension for single value output
+        return F.softmax(action_logits, dim=-1), state_value
+
+
+# Define the DQN Agent
+# PPO Agent Implementation
+class PPOAgent:
+    def __init__(self, observation_channels, action_space, lr=1e-3, gamma=0.99, clip_param=0.2, update_interval=4000,
+                 epochs=10, device='cpu'):
+        self.observation_channels = observation_channels
+        self.action_space = action_space
         self.lr = lr
         self.gamma = gamma
-        self.epsilon = epsilon_start
-        self.epsilon_end = epsilon_end
-        self.epsilon_decay = epsilon_decay
+        self.clip_param = clip_param
+        self.update_interval = update_interval
+        self.epochs = epochs
         self.device = device
-        self.model = self.build_model()
-        self.model.to(self.device)
-        self.optimizer = optim.Adam(self.model.parameters(), lr=self.lr)
-        self.memory = PrioritizedReplayBuffer(1000)
-        self.target_model = copy.deepcopy(self.model)  # Assuming self.model is your online network
-        self.target_model.to(self.device)
 
-    def build_model(self) -> nn.Module:
-        """
-        Build the CNN model with adaptive pooling for processing variable size image inputs.
-        """
-        model = nn.Sequential(
-            nn.Conv2d(self.obs_channels, 32, kernel_size=4, stride=1),
-            nn.ReLU(),
-            nn.BatchNorm2d(32),
-            nn.Conv2d(32, 64, kernel_size=4, stride=1),
-            nn.ReLU(),
-            nn.BatchNorm2d(64),
-            nn.Conv2d(64, 64, kernel_size=3, stride=1),
-            nn.ReLU(),
-            nn.BatchNorm2d(64),
-            nn.Conv2d(64, 64, kernel_size=3, stride=1),
-            nn.ReLU(),
-            nn.BatchNorm2d(64),
-            nn.Conv2d(64, 64, kernel_size=3, stride=1),
-            nn.ReLU(),
-            nn.BatchNorm2d(64),
-            nn.AdaptiveAvgPool2d(output_size=(7, 7)),  # Output size: 7x7
-            nn.Flatten(),
-            nn.Linear(64 * 7 * 7, 512),
-            nn.ReLU(),
-            nn.Linear(512, self.action_space)
-        )
-        return model
+        self.policy = PPOPolicyNetwork(observation_channels, action_space).to(self.device)
+        self.optimizer = optim.Adam(self.policy.parameters(), lr=self.lr)
 
-    def act(self, state: np.ndarray) -> int:
-        """
-        Determine the action to take based on the current state.
+        # These buffers store trajectories
+        self.states = []
+        self.actions = []
+        self.log_probs = []
+        self.rewards = []
+        self.is_terminals = []
 
-        :param state: np.ndarray, The current state.
-        :return: int, The action to take.
-        """
-        # Convert state to tensor and add batch dimension if it's not present
-        state = torch.FloatTensor(state).to(self.device).unsqueeze(0) if state.ndim == 1 else torch.FloatTensor(state).to(self.device)
-        if np.random.rand() <= self.epsilon:  # Explore
-            return random.randrange(self.action_space)
-        else:  # Exploit
-            with torch.no_grad():
-                action_values = self.model(state)
-            return np.argmax(action_values.cpu().numpy())  # Choose action with highest Q-value
+    def act(self, state):
+        # Convert state to tensor if it's not already
+        # state = torch.FloatTensor(state).unsqueeze(0)  # Add batch dimension if needed
 
-    def remember(self, state: np.ndarray, action: int, reward: float, next_state: np.ndarray, done: bool):
-        """
-        Store a transition in the replay buffer.
+        # Forward pass through the model to get policy logits and state value
+        policy_logits, state_value = self.policy(state)
 
-        :param state: np.ndarray, The current state.
-        :param action: int, The action taken.
-        :param reward: float, The reward received.
-        :param next_state: np.ndarray, The next state.
-        :param done: bool, Whether the episode has ended.
-        """
-        self.memory.append((state, action, reward, next_state, done))
+        # Convert logits to probabilities for sampling
+        probs = F.softmax(policy_logits, dim=-1)
+        dist = torch.distributions.Categorical(probs)
 
-    def replay(self, batch_size: int):
-        # Function to pad images within each batch to the same size
-        def pad_images(images):
-            # Find the max width and height in the batch
-            max_height = max(image.shape[1] for image in images)
-            max_width = max(image.shape[2] for image in images)
+        action = dist.sample()
+        log_prob = dist.log_prob(action)
 
-            # Pad images to the max width and height
-            padded_images = [F.pad(image, (0, max_width - image.shape[2], 0, max_height - image.shape[1])) for image in
-                             images]
-            return torch.stack(padded_images)
+        # Assuming your model returns the value estimate directly
+        return action.item(), log_prob, state_value.squeeze()
 
-        if len(self.memory.buffer) < batch_size:  # Ensure there are enough samples in the memory
-            return
+    def calculate_returns(self, rewards, gamma, normalization=True):
+        R = 0
+        returns = []
+        for r in reversed(rewards):
+            R = r + gamma * R
+            returns.insert(0, R)
+        returns = torch.tensor(returns)
+        if normalization:
+            returns = (returns - returns.mean()) / (returns.std() + 1e-7)
+        return returns
 
-        minibatch, indices, weights = self.memory.sample(batch_size, beta=0.4)  # Use PER to sample
-        states, actions, rewards, next_states, dones = zip(*minibatch)
+    def update(self):
+        # Convert lists to tensors
+        states = torch.stack(self.states).to(self.device).detach()
+        actions = torch.stack(self.actions).to(self.device).detach()
+        old_log_probs = torch.stack(self.log_probs).to(self.device).detach()
+        returns = self.calculate_returns(self.rewards, self.gamma).to(self.device)
 
-        # Preprocess and pad states and next_states
-        states = pad_images([torch.FloatTensor(state) for state in states]).squeeze(1).to(self.device)
-        next_states = pad_images([torch.FloatTensor(state) for state in next_states]).squeeze(1).to(
-            self.device)
+        # Policy update
+        for _ in range(self.epochs):
+            log_probs = self.policy(states).log_prob(actions)
+            ratios = torch.exp(log_probs - old_log_probs.detach())
+            advantages = returns - returns.mean()  # Placeholder for actual advantage calculation
+            surr1 = ratios * advantages
+            surr2 = torch.clamp(ratios, 1 - self.clip_param, 1 + self.clip_param) * advantages
+            loss = -torch.min(surr1, surr2).mean()
 
-        actions = torch.tensor(actions, device=self.device).view(-1, 1)
-        rewards = torch.tensor(rewards, device=self.device).view(-1, 1)
-        dones = torch.tensor(dones, dtype=torch.bool, device=self.device).view(-1, 1)
-        weights = torch.tensor(weights, dtype=torch.float32, device=self.device)
+            self.optimizer.zero_grad()
+            loss.backward()
+            self.optimizer.step()
 
-        # Online network estimates which action is best in the next state
-        next_actions = self.model(next_states).max(1)[1].unsqueeze(1)
+        # Clear the trajectory buffers
+        self.clear_memory()
 
-        # Target network evaluates the Q-value of the action selected by the online network
-        next_Q_values = self.target_model(next_states).gather(1, next_actions).detach()
-        expected_Q_values = rewards + self.gamma * next_Q_values * (~dones)
-
-        # Compute weighted loss
-        Q_values = self.model(states).gather(1, actions)
-        loss = (weights * F.mse_loss(Q_values, expected_Q_values, reduction='none')).mean()
-
-        # Backpropagation
-        self.optimizer.zero_grad()
-        loss.backward()
-        self.optimizer.step()
-
-        # Update priorities in the replay buffer
-        new_priorities = abs(
-            Q_values - expected_Q_values).detach().cpu().numpy() + 1e-5  # Adding a small constant to ensure no zero priority
-        self.memory.update_priorities(indices, new_priorities)
+    def clear_memory(self):
+        del self.states[:]
+        del self.actions[:]
+        del self.log_probs[:]
+        del self.rewards[:]
+        del self.is_terminals[:]
 
     def create_image_with_action(self, image, action, step_number, reward):
         """
@@ -281,6 +266,9 @@ def preprocess_observation(obs: dict, rotate=False) -> torch.Tensor:
     # Normalize the tensor to [0, 1] (if not already normalized)
     rotated_tensor /= 255.0 if rotated_tensor.max() > 1.0 else 1.0
 
+    # Change the order from (C, H, W) to (H, W, C)
+    # rotated_tensor = rotated_tensor.permute(1, 2, 0)
+
     # Add a batch dimension
     rotated_tensor = rotated_tensor.unsqueeze(0)
 
@@ -289,65 +277,63 @@ def preprocess_observation(obs: dict, rotate=False) -> torch.Tensor:
 
 def run_training(
     env: CustomEnvFromFile,
-    agent: DQNAgent,
+    agent: PPOAgent,
     episodes: int = 100,
-    batch_size: int = 32,
-    target_update_interval: int = 10,
     env_name: str = ""
 ) -> None:
     """
-    Runs the training loop for a specified number of episodes.
+    Runs the training loop for a specified number of episodes using PPO.
 
     Args:
         env (CustomEnvFromFile): The environment instance where the agent will be trained.
-        agent (DQNAgent): The agent to be trained.
+        agent (PPOAgent): The agent to be trained with PPO.
         episodes (int): The total number of episodes to run for training.
-        batch_size (int): The batch size for experience replay during training.
+        env_name (str): A name for the environment, used for saving outputs.
 
     Returns:
         None
     """
     for e in range(episodes):
-        if e % target_update_interval == 0:
-            agent.target_model.load_state_dict(agent.model.state_dict())
-
         trajectory = []  # List to record each step for the GIF.
-        rewards = []  # List to store rewards received each step of the episode.
         obs, _ = env.reset()  # Reset the environment at the start of each episode.
         state = preprocess_observation(obs)  # Preprocess the observation for the agent.
-        state_img = obs['image']  # Store the original 'image' observation for visualization.
+        # state_img = obs['image']  # Store the original 'image' observation for visualization.
+        episode_states, episode_actions, episode_rewards, episode_log_probs = [], [], [], []
 
         for time in range(env.max_steps):
-            action = agent.act(state)  # Agent selects an action based on the current state.
+            action, log_prob, value = agent.act(state)  # Agent selects an action based on the current state.
             next_obs, reward, terminated, truncated, info = env.step(action)  # Execute the action.
+            episode_rewards.append(reward)
+            episode_states.append(obs)
+            episode_actions.append(action)
+            episode_log_probs.append(log_prob)
             next_state = preprocess_observation(next_obs)  # Preprocess the new observation.
-            rewards.append(reward)  # Append the received reward to the rewards list.
             trajectory.append((env.render(), action))  # Append the step for the GIF.
 
             done = terminated or truncated  # Check if the episode has ended.
-            rotated_next_state = preprocess_observation(next_obs, rotate=True)  # randomly rotate the image before adding into the buffer
+            rotated_next_state = preprocess_observation(next_obs, rotate=True)  # Apply rotation preprocessing if necessary.
             agent.memory.add(state, action, reward, rotated_next_state, done)  # Add experience to the buffer.
 
             state = next_state  # Update the current state for the next iteration.
 
             if done:
                 print(f"Episode: {e}/{episodes}, Score: {time}, Epsilon: {agent.epsilon:.2}")
+                agent.update(episode_states, episode_actions, episode_rewards, episode_log_probs)
                 break
 
-            if len(agent.memory.buffer) > batch_size:
-                agent.replay(batch_size)  # Perform a training step if enough experiences are in the buffer.
-
-        # Epsilon decay after each episode.
-        if agent.epsilon > agent.epsilon_end:
-            agent.epsilon *= agent.epsilon_decay
+        # # Epsilon decay after each episode.
+        # if agent.epsilon > agent.epsilon_end:
+        #     agent.epsilon *= agent.epsilon_decay
 
         # Save the recorded trajectory as a GIF after each episode.
-        agent.save_trajectory_as_gif(trajectory, rewards, filename=env_name+f"_trajectory_{e}.gif")
+        agent.save_trajectory_as_gif(trajectory, episode_rewards, filename=env_name+f"_trajectory_{e}.gif")
+
 
 
 if __name__ == "__main__":
     # Device configuration
     device = "cuda" if torch.cuda.is_available() else "cpu"
+    device = "cpu"
 
     # List of environments to train on
     environment_files = [
@@ -360,26 +346,26 @@ if __name__ == "__main__":
 
     # Training settings
     episodes_per_env = {
-        'simple_test_corridor.txt': 100,
-        'simple_test_corridor_long.txt': 100,
-        'simple_test_maze_small.txt': 100,
-        'simple_test_door_key.txt': 100,
+        'simple_test_corridor.txt': 120,
+        'simple_test_corridor_long.txt': 120,
+        'simple_test_maze_small.txt': 120,
+        'simple_test_door_key.txt': 120,
         # Define episodes for more environments as needed
     }
     batch_size = 32
 
     for env_file in environment_files:
         # Initialize environment
-        env = ActionBonus(RGBImgObsWrapper(FullyObsWrapper(CustomEnvFromFile(txt_file_path=env_file, render_mode='rgb_array', size=None, max_steps=512))))
+        env = RGBImgObsWrapper(FullyObsWrapper(CustomEnvFromFile(txt_file_path=env_file, render_mode='rgb_array', size=None, max_steps=512)))
         image_shape = env.observation_space.spaces['image'].shape
         action_space = env.action_space.n
 
         # Initialize DQN agent for the current environment
-        agent = DQNAgent(observation_channels=image_shape[-1], action_space=action_space, lr=1e-4, gamma=0.99, device=device)
+        agent = PPOAgent(observation_channels=image_shape[-1], action_space=action_space, lr=1e-4, gamma=0.99, device=device)
         agent.memory = PrioritizedReplayBuffer(2**16)  # Use a large buffer size
 
         # Reset agent's exploration rate for each new environment
-        agent.epsilon = 0.5
+        agent.epsilon = 0.75
         agent.epsilon_decay = 0.99
 
         # Fetch the number of episodes for the current environment
@@ -387,5 +373,5 @@ if __name__ == "__main__":
 
         # Run training for the current environment
         print(f"Training on {env_file}")
-        run_training(env, agent, episodes=episodes, batch_size=batch_size, env_name=env_file)
+        run_training(env, agent, episodes=episodes, env_name=env_file)
         print(f"Completed training on {env_file}")
