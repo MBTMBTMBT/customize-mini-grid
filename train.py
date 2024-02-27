@@ -112,7 +112,7 @@ class PPOAgent:
         self.clip_param = clip_param
         self.update_interval = update_interval
         self.epochs = epochs
-        self.device = device
+        self.device = torch.device(device)
 
         self.policy = PPOPolicyNetwork(observation_channels, action_space).to(self.device)
         self.optimizer = optim.Adam(self.policy.parameters(), lr=self.lr)
@@ -120,26 +120,21 @@ class PPOAgent:
         # These buffers store trajectories
         self.states = []
         self.actions = []
+        self.state_values = []
         self.log_probs = []
         self.rewards = []
         self.is_terminals = []
 
     def act(self, state):
-        # Convert state to tensor if it's not already
-        # state = torch.FloatTensor(state).unsqueeze(0)  # Add batch dimension if needed
-
-        # Forward pass through the model to get policy logits and state value
-        policy_logits, state_value = self.policy(state)
-
-        # Convert logits to probabilities for sampling
-        probs = F.softmax(policy_logits, dim=-1)
-        dist = torch.distributions.Categorical(probs)
-
-        action = dist.sample()
-        log_prob = dist.log_prob(action)
-
-        # Assuming your model returns the value estimate directly
-        return action.item(), log_prob, state_value.squeeze()
+        state = state.float().to(self.device)
+        probs, state_value = self.policy(state)
+        m = Categorical(probs)
+        action = m.sample()
+        # self.states.append(state)
+        # self.actions.append(action)
+        self.log_probs.append(m.log_prob(action))
+        self.state_values.append(state_value)
+        return action.item()
 
     def calculate_returns(self, rewards, gamma, normalization=True):
         R = 0
@@ -154,33 +149,48 @@ class PPOAgent:
 
     def update(self):
         # Convert lists to tensors
-        states = torch.stack(self.states).to(self.device).detach()
-        actions = torch.stack(self.actions).to(self.device).detach()
-        old_log_probs = torch.stack(self.log_probs).to(self.device).detach()
-        returns = self.calculate_returns(self.rewards, self.gamma).to(self.device)
+        states = torch.stack(self.states).squeeze(1).to(self.device)
+        actions = torch.tensor(self.actions, dtype=torch.int64).to(self.device)
+        old_log_probs = torch.stack(self.log_probs).to(self.device)
 
-        # Policy update
-        for _ in range(self.epochs):
-            log_probs = self.policy(states).log_prob(actions)
-            ratios = torch.exp(log_probs - old_log_probs.detach())
-            advantages = returns - returns.mean()  # Placeholder for actual advantage calculation
-            surr1 = ratios * advantages
-            surr2 = torch.clamp(ratios, 1 - self.clip_param, 1 + self.clip_param) * advantages
-            loss = -torch.min(surr1, surr2).mean()
+        # Placeholder for rewards-to-go calculation; implement your method as needed
+        rewards_to_go = self.calculate_returns(self.rewards, self.gamma).to(self.device)
 
-            self.optimizer.zero_grad()
-            loss.backward()
-            self.optimizer.step()
+        # Placeholder for advantage calculation; implement a more sophisticated method as needed
+        advantages = rewards_to_go - torch.tensor(self.state_values).to(self.device).squeeze()
 
-        # Clear the trajectory buffers
+        # Calculate current log probs and state values for all stored states and actions
+        probs, state_values = self.policy(states)
+        dist = Categorical(probs)
+        current_log_probs = dist.log_prob(actions)
+
+        # Calculate the ratio (pi_theta / pi_theta_old)
+        ratios = torch.exp(current_log_probs - old_log_probs)
+
+        # Calculate surrogate loss
+        surr1 = ratios * advantages.detach()
+        surr2 = torch.clamp(ratios, 1.0 - self.clip_param, 1.0 + self.clip_param) * advantages.detach()
+        policy_loss = -torch.min(surr1, surr2).mean()
+
+        # Placeholder for value loss; consider using rewards_to_go for more accurate value updates
+        value_loss = F.mse_loss(torch.squeeze(state_values), rewards_to_go.detach())
+
+        # Take gradient step
+        self.optimizer.zero_grad()
+        total_loss = policy_loss + value_loss
+        total_loss.backward()
+        self.optimizer.step()
+
+        # Clear memory
         self.clear_memory()
 
     def clear_memory(self):
-        del self.states[:]
-        del self.actions[:]
-        del self.log_probs[:]
-        del self.rewards[:]
-        del self.is_terminals[:]
+        self.states = []
+        self.actions = []
+        self.state_values = []
+        self.log_probs = []
+        self.rewards = []
+        self.is_terminals = []
 
     def create_image_with_action(self, image, action, step_number, reward):
         """
@@ -296,44 +306,35 @@ def run_training(
     for e in range(episodes):
         trajectory = []  # List to record each step for the GIF.
         obs, _ = env.reset()  # Reset the environment at the start of each episode.
-        state = preprocess_observation(obs)  # Preprocess the observation for the agent.
+        state = preprocess_observation(obs, rotate=True)  # Preprocess the observation for the agent.
         # state_img = obs['image']  # Store the original 'image' observation for visualization.
-        episode_states, episode_actions, episode_rewards, episode_log_probs = [], [], [], []
+        # episode_states, episode_actions, episode_rewards, episode_log_probs = [], [], [], []
 
         for time in range(env.max_steps):
-            action, log_prob, value = agent.act(state)  # Agent selects an action based on the current state.
+            action = agent.act(state)  # Agent selects an action based on the current state.
             next_obs, reward, terminated, truncated, info = env.step(action)  # Execute the action.
-            episode_rewards.append(reward)
-            episode_states.append(obs)
-            episode_actions.append(action)
-            episode_log_probs.append(log_prob)
-            next_state = preprocess_observation(next_obs)  # Preprocess the new observation.
+            agent.states.append(state)
+            agent.actions.append(action)
+            agent.rewards.append(float(reward))
+            next_state = preprocess_observation(next_obs, rotate=True)  # Preprocess the new observation.
             trajectory.append((env.render(), action))  # Append the step for the GIF.
 
             done = terminated or truncated  # Check if the episode has ended.
-            rotated_next_state = preprocess_observation(next_obs, rotate=True)  # Apply rotation preprocessing if necessary.
-            agent.memory.add(state, action, reward, rotated_next_state, done)  # Add experience to the buffer.
 
             state = next_state  # Update the current state for the next iteration.
 
             if done:
-                print(f"Episode: {e}/{episodes}, Score: {time}, Epsilon: {agent.epsilon:.2}")
-                agent.update(episode_states, episode_actions, episode_rewards, episode_log_probs)
+                print(f"Episode: {e}/{episodes}, Score: {time}")
+                # Save the recorded trajectory as a GIF after each episode.
+                agent.save_trajectory_as_gif(trajectory, agent.rewards, filename=env_name + f"_trajectory_{e}.gif")
+                agent.update()
                 break
-
-        # # Epsilon decay after each episode.
-        # if agent.epsilon > agent.epsilon_end:
-        #     agent.epsilon *= agent.epsilon_decay
-
-        # Save the recorded trajectory as a GIF after each episode.
-        agent.save_trajectory_as_gif(trajectory, episode_rewards, filename=env_name+f"_trajectory_{e}.gif")
-
 
 
 if __name__ == "__main__":
     # Device configuration
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    device = "cpu"
+    # device = "cpu"
 
     # List of environments to train on
     environment_files = [
@@ -361,13 +362,7 @@ if __name__ == "__main__":
         action_space = env.action_space.n
 
         # Initialize DQN agent for the current environment
-        agent = PPOAgent(observation_channels=image_shape[-1], action_space=action_space, lr=1e-4, gamma=0.99, device=device)
-        agent.memory = PrioritizedReplayBuffer(2**16)  # Use a large buffer size
-
-        # Reset agent's exploration rate for each new environment
-        agent.epsilon = 0.75
-        agent.epsilon_decay = 0.99
-
+        agent = PPOAgent(observation_channels=image_shape[-1], action_space=action_space, lr=1e-3, gamma=0.99, device=device)
         # Fetch the number of episodes for the current environment
         episodes = episodes_per_env.get(env_file, 100)  # Default to 100 episodes if not specified
 
