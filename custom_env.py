@@ -128,7 +128,7 @@ class CustomEnvFromFile(MiniGridEnv):
 
 if __name__ == "__main__":
     # Example usage of the CustomEnvFromFile class
-    env = CustomEnvFromFile(txt_file_path='simple_test_corridor.txt', custom_mission="Find the key and open the door.",
+    env = CustomEnvFromFile(txt_file_path='simple_test_corridor_long.txt', custom_mission="Find the key and open the door.",
                             render_mode="human")
     manual_control = ManualControl(env)  # Allows manual control for testing and visualization
     manual_control.start()  # Start the manual control interface
