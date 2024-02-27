@@ -235,7 +235,7 @@ class DQNAgent:
         imageio.mimsave(filepath, images_with_actions, fps=3)
 
 
-def preprocess_observation(obs: dict) -> torch.Tensor:
+def preprocess_observation(obs: dict, rotate=False) -> torch.Tensor:
     """
     Preprocess the observation obtained from the environment to be suitable for the CNN.
     This function extracts, randomly rotates, and normalizes the 'image' part of the observation.
@@ -251,15 +251,19 @@ def preprocess_observation(obs: dict) -> torch.Tensor:
     transform_to_pil = transforms.ToPILImage()
     pil_image = transform_to_pil(image_obs)
 
-    # Randomly rotate the image
-    # As the image is square, rotations of 0, 90, 180, 270 degrees will not require resizing
-    rotation_degrees = np.random.choice([0, 90, 180, 270])
-    transform_rotate = transforms.RandomRotation([rotation_degrees, rotation_degrees])
-    rotated_image = transform_rotate(pil_image)
-
     # Convert the PIL Image back to a numpy array
     transform_to_tensor = transforms.ToTensor()
-    rotated_tensor = transform_to_tensor(rotated_image)
+
+    # Randomly rotate the image
+    # As the image is square, rotations of 0, 90, 180, 270 degrees will not require resizing
+    if rotate:
+        rotation_degrees = np.random.choice([0, 90, 180, 270])
+        transform_rotate = transforms.RandomRotation([rotation_degrees, rotation_degrees])
+        rotated_image = transform_rotate(pil_image)
+
+        rotated_tensor = transform_to_tensor(rotated_image)
+    else:
+        rotated_tensor = transform_to_tensor(pil_image)
 
     # Normalize the tensor to [0, 1] (if not already normalized)
     rotated_tensor /= 255.0 if rotated_tensor.max() > 1.0 else 1.0
@@ -307,7 +311,8 @@ def run_training(
             trajectory.append((env.render(), action))  # Append the step for the GIF.
 
             done = terminated or truncated  # Check if the episode has ended.
-            agent.memory.add(state, action, reward, next_state, done)  # Add experience to the buffer.
+            rotated_next_state = preprocess_observation(next_obs, rotate=True)  # randomly rotate the image before adding into the buffer
+            agent.memory.add(state, action, reward, rotated_next_state, done)  # Add experience to the buffer.
 
             state = next_state  # Update the current state for the next iteration.
 
