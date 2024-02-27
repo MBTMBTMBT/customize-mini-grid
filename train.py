@@ -6,7 +6,7 @@ import torch.nn.functional as F
 import torchvision.transforms as transforms
 import numpy as np
 import random
-from minigrid.wrappers import FullyObsWrapper, RGBImgObsWrapper
+from minigrid.wrappers import FullyObsWrapper, RGBImgObsWrapper, ActionBonus
 from custom_env import CustomEnvFromFile
 import imageio
 import matplotlib.pyplot as plt
@@ -293,6 +293,7 @@ def run_training(
     episodes: int = 100,
     batch_size: int = 32,
     target_update_interval: int = 10,
+    env_name: str = ""
 ) -> None:
     """
     Runs the training loop for a specified number of episodes.
@@ -341,7 +342,7 @@ def run_training(
             agent.epsilon *= agent.epsilon_decay
 
         # Save the recorded trajectory as a GIF after each episode.
-        agent.save_trajectory_as_gif(trajectory, rewards, filename=f"trajectory_{e}.gif")
+        agent.save_trajectory_as_gif(trajectory, rewards, filename=env_name+f"_trajectory_{e}.gif")
 
 
 if __name__ == "__main__":
@@ -369,7 +370,7 @@ if __name__ == "__main__":
 
     for env_file in environment_files:
         # Initialize environment
-        env = RGBImgObsWrapper(FullyObsWrapper(CustomEnvFromFile(txt_file_path=env_file, render_mode='rgb_array', size=None, max_steps=512)))
+        env = ActionBonus(RGBImgObsWrapper(FullyObsWrapper(CustomEnvFromFile(txt_file_path=env_file, render_mode='rgb_array', size=None, max_steps=512))))
         image_shape = env.observation_space.spaces['image'].shape
         action_space = env.action_space.n
 
@@ -386,5 +387,5 @@ if __name__ == "__main__":
 
         # Run training for the current environment
         print(f"Training on {env_file}")
-        run_training(env, agent, episodes=episodes, batch_size=batch_size)
+        run_training(env, agent, episodes=episodes, batch_size=batch_size, env_name=env_file)
         print(f"Completed training on {env_file}")
