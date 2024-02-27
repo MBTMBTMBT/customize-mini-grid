@@ -1,10 +1,12 @@
+import matplotlib.pyplot
 import torch
 import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
+import torchvision.transforms as transforms
 import numpy as np
 import random
-from minigrid.wrappers import FullyObsWrapper
+from minigrid.wrappers import FullyObsWrapper, RGBImgObsWrapper
 from custom_env import CustomEnvFromFile
 import imageio
 import matplotlib.pyplot as plt
@@ -62,8 +64,8 @@ class PrioritizedReplayBuffer:
 
 # Define the DQN Agent
 class DQNAgent:
-    def __init__(self, action_space: int, lr: float = 1e-2, gamma: float = 0.99,
-                 epsilon_start: float = 1.0, epsilon_end: float = 0.1, epsilon_decay: float = 0.95):
+    def __init__(self, observation_channels: int, action_space: int, lr: float = 1e-2, gamma: float = 0.99,
+                 epsilon_start: float = 1.0, epsilon_end: float = 0.1, epsilon_decay: float = 0.95, device: str = 'cpu'):
         """
         Initialize the DQN agent.
 
@@ -74,6 +76,7 @@ class DQNAgent:
         :param epsilon_end: float, Minimum value of epsilon.
         :param epsilon_decay: float, Decay rate of epsilon per episode.
         """
+        self.obs_channels = observation_channels
         self.action_space = action_space
         # self.memory = deque(maxlen=10000)  # Experience replay buffer
         self.lr = lr
@@ -81,22 +84,34 @@ class DQNAgent:
         self.epsilon = epsilon_start
         self.epsilon_end = epsilon_end
         self.epsilon_decay = epsilon_decay
+        self.device = device
         self.model = self.build_model()
+        self.model.to(self.device)
         self.optimizer = optim.Adam(self.model.parameters(), lr=self.lr)
         self.memory = PrioritizedReplayBuffer(1000)
         self.target_model = copy.deepcopy(self.model)  # Assuming self.model is your online network
+        self.target_model.to(self.device)
 
     def build_model(self) -> nn.Module:
         """
         Build the CNN model with adaptive pooling for processing variable size image inputs.
         """
         model = nn.Sequential(
-            nn.Conv2d(3, 32, kernel_size=4, stride=1),
+            nn.Conv2d(self.obs_channels, 32, kernel_size=4, stride=1),
             nn.ReLU(),
+            nn.BatchNorm2d(32),
             nn.Conv2d(32, 64, kernel_size=4, stride=1),
             nn.ReLU(),
-            # nn.Conv2d(64, 64, kernel_size=3, stride=1),
-            # nn.ReLU(),
+            nn.BatchNorm2d(64),
+            nn.Conv2d(64, 64, kernel_size=3, stride=1),
+            nn.ReLU(),
+            nn.BatchNorm2d(64),
+            nn.Conv2d(64, 64, kernel_size=3, stride=1),
+            nn.ReLU(),
+            nn.BatchNorm2d(64),
+            nn.Conv2d(64, 64, kernel_size=3, stride=1),
+            nn.ReLU(),
+            nn.BatchNorm2d(64),
             nn.AdaptiveAvgPool2d(output_size=(7, 7)),  # Output size: 7x7
             nn.Flatten(),
             nn.Linear(64 * 7 * 7, 512),
@@ -113,7 +128,7 @@ class DQNAgent:
         :return: int, The action to take.
         """
         # Convert state to tensor and add batch dimension if it's not present
-        state = torch.FloatTensor(state).unsqueeze(0) if state.ndim == 1 else torch.FloatTensor(state)
+        state = torch.FloatTensor(state).to(self.device).unsqueeze(0) if state.ndim == 1 else torch.FloatTensor(state).to(self.device)
         if np.random.rand() <= self.epsilon:  # Explore
             return random.randrange(self.action_space)
         else:  # Exploit
@@ -141,12 +156,12 @@ class DQNAgent:
         states, actions, rewards, next_states, dones = zip(*minibatch)
 
         # Convert to tensors
-        states = torch.stack(states).squeeze(1)
-        next_states = torch.stack(next_states).squeeze(1)
-        actions = torch.tensor(actions).view(-1, 1)
-        rewards = torch.tensor(rewards).view(-1, 1)
-        dones = torch.tensor(dones, dtype=torch.bool).view(-1, 1)
-        weights = torch.tensor(weights, dtype=torch.float32)
+        states = torch.stack(states).squeeze(1).to(self.device)
+        next_states = torch.stack(next_states).squeeze(1).to(self.device)
+        actions = torch.tensor(actions, device=self.device).view(-1, 1)
+        rewards = torch.tensor(rewards, device=self.device).view(-1, 1)
+        dones = torch.tensor(dones, dtype=torch.bool, device=self.device).view(-1, 1)
+        weights = torch.tensor(weights, dtype=torch.float32, device=self.device)
 
         # Online network estimates which action is best in the next state
         next_actions = self.model(next_states).max(1)[1].unsqueeze(1)
@@ -166,7 +181,7 @@ class DQNAgent:
 
         # Update priorities in the replay buffer
         new_priorities = abs(
-            Q_values - expected_Q_values).detach().numpy() + 1e-5  # Adding a small constant to ensure no zero priority
+            Q_values - expected_Q_values).detach().cpu().numpy() + 1e-5  # Adding a small constant to ensure no zero priority
         self.memory.update_priorities(indices, new_priorities)
 
     def create_image_with_action(self, image, action, step_number, reward):
@@ -223,19 +238,36 @@ class DQNAgent:
 def preprocess_observation(obs: dict) -> torch.Tensor:
     """
     Preprocess the observation obtained from the environment to be suitable for the CNN.
-
-    This function extracts and normalizes the 'image' part of the observation.
+    This function extracts, randomly rotates, and normalizes the 'image' part of the observation.
 
     :param obs: dict, The observation dictionary received from the environment.
                 Expected to have a key 'image' containing the visual representation.
-    :return: torch.Tensor, The normalized image observation.
+    :return: torch.Tensor, The normalized and randomly rotated image observation.
     """
     # Extract the 'image' array from the observation dictionary
     image_obs = obs['image']
-    # Normalize the image to [0, 1]
-    image_obs = image_obs / 255.0
-    # Convert to PyTorch tensor and add a batch dimension
-    return torch.FloatTensor(image_obs).permute(2, 0, 1).unsqueeze(0)  # Change to (C, H, W) and add batch dimension
+
+    # Convert the numpy array to a PIL Image for rotation
+    transform_to_pil = transforms.ToPILImage()
+    pil_image = transform_to_pil(image_obs)
+
+    # Randomly rotate the image
+    # As the image is square, rotations of 0, 90, 180, 270 degrees will not require resizing
+    rotation_degrees = np.random.choice([0, 90, 180, 270])
+    transform_rotate = transforms.RandomRotation([rotation_degrees, rotation_degrees])
+    rotated_image = transform_rotate(pil_image)
+
+    # Convert the PIL Image back to a numpy array
+    transform_to_tensor = transforms.ToTensor()
+    rotated_tensor = transform_to_tensor(rotated_image)
+
+    # Normalize the tensor to [0, 1] (if not already normalized)
+    rotated_tensor /= 255.0 if rotated_tensor.max() > 1.0 else 1.0
+
+    # Add a batch dimension
+    rotated_tensor = rotated_tensor.unsqueeze(0)
+
+    return rotated_tensor
 
 
 def run_training(
@@ -295,45 +327,50 @@ def run_training(
 
 
 if __name__ == "__main__":
-    # Create an environment instance wrapped to provide fully observable states
-    env1 = FullyObsWrapper(CustomEnvFromFile(txt_file_path='simple_test_corridor.txt', render_mode='rgb_array', size=8, max_steps=100))
+    # device
+    device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    # Determine the shape of the 'image' observation space to calculate the state space
-    # The 'image' space is expected to be a 3D array (e.g., width x height x RGB channels)
-    image_shape = env1.observation_space.spaces['image'].shape  # type: tuple
+    # List of environments to train on
+    environment_files = [
+        'simple_test_corridor.txt',
+        'simple_test_door_key.txt',
+        # Add more file paths as needed
+    ]
 
-    # Retrieve the number of possible actions from the environment's action space
-    action_space = env1.action_space.n  # type: int
-
-    # Initialize the DQN agent with the state space and action space dimensions
-    agent = DQNAgent(action_space, lr=5e-5, gamma=0.99)
+    # Initial setup for the agent
+    # Note: The initial setup for the agent assumes that the observation space and action space
+    # dimensions do not change significantly across environments. If they do, adjustments are needed.
+    # Setup an example environment to initialize the agent properly
+    example_env = RGBImgObsWrapper(FullyObsWrapper(
+        CustomEnvFromFile(txt_file_path=environment_files[0], render_mode='rgb_array', size=8, max_steps=256)))
+    image_shape = example_env.observation_space.spaces['image'].shape
+    action_space = example_env.action_space.n
+    agent = DQNAgent(observation_channels=image_shape[-1], action_space=action_space, lr=1e-4, gamma=0.99,
+                     device=device)
     agent.memory = PrioritizedReplayBuffer(10000)
 
-    # Set the number of episodes to run the training for
-    episodes = 50  # type: int
-    # Set the batch size for experience replay; using 1 for this example
-    batch_size = 32  # type: int
+    # Training settings
+    episodes_per_env = {
+        'simple_test_corridor.txt': 100,
+        'simple_test_door_key.txt': 150,
+        # Define episodes for more environments as needed
+    }
+    batch_size = 32
 
-    run_training(env1, agent, episodes=episodes, batch_size=batch_size)
+    for env_file in environment_files:
+        # Create an environment instance for the current file
+        env = RGBImgObsWrapper(
+            FullyObsWrapper(CustomEnvFromFile(txt_file_path=env_file, render_mode='rgb_array', size=8, max_steps=256)))
 
-    # Create an environment instance wrapped to provide fully observable states
-    env2 = FullyObsWrapper(CustomEnvFromFile(txt_file_path='simple_test_door_key.txt', render_mode='rgb_array', size=8, max_steps=150))
+        # Reset agent's exploration rate and buffer for each new environment
+        agent.epsilon = 0.5
+        agent.epsilon_decay = 0.99
+        # agent.memory = PrioritizedReplayBuffer(10000)
 
-    # Determine the shape of the 'image' observation space to calculate the state space
-    # The 'image' space is expected to be a 3D array (e.g., width x height x RGB channels)
-    image_shape = env2.observation_space.spaces['image'].shape  # type: tuple
+        # Fetch the number of episodes for the current environment
+        episodes = episodes_per_env.get(env_file, 100)  # Default to 100 episodes if not specified
 
-    # Retrieve the number of possible actions from the environment's action space
-    action_space = env2.action_space.n  # type: int
-
-    # Set the number of episodes to run the training for
-    episodes = 100  # type: int
-    # Set the batch size for experience replay; using 1 for this example
-    batch_size = 16  # type: int
-
-    # reset agent's exploration rate and buffer
-    agent.epsilon = 1.0
-    agent.epsilon_decay = 0.99
-    agent.memory = PrioritizedReplayBuffer(10000)
-
-    run_training(env2, agent, episodes=episodes, batch_size=batch_size)
+        # Run training for the current environment
+        print(f"Training on {env_file}")
+        run_training(env, agent, episodes=episodes, batch_size=batch_size)
+        print(f"Completed training on {env_file}")
