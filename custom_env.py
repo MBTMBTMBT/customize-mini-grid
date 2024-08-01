@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, Tuple
 from minigrid.core.grid import Grid
 from minigrid.core.mission import MissionSpace
 from minigrid.core.world_object import *
@@ -22,7 +22,7 @@ class CustomEnvFromFile(MiniGridEnv):
             self,
             txt_file_path: str,
             size: Optional[int] = None,
-            agent_start_pos: tuple[int, int] = (1, 1),
+            agent_start_pos: Tuple[int, int] = (1, 1),
             agent_start_dir: int = 2,
             custom_mission: str = "Explore and interact with objects.",
             max_steps: Optional[int] = None,
