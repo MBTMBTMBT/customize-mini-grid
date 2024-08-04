@@ -125,8 +125,14 @@ class CustomEnv(MiniGridEnv):
             anchor_x = free_width // 2
             anchor_y = free_height // 2
         elif self.display_mode == "random":
-            anchor_x = random.choice(list(range(free_width)))
-            anchor_y = random.choice(list(range(free_height)))
+            if free_width > 0:
+                anchor_x = random.choice(list(range(free_width)))
+            else:
+                anchor_x = 0
+            if free_height > 0:
+                anchor_y = random.choice(list(range(free_height)))
+            else:
+                anchor_y = 0
         else:
             raise ValueError("Invalid display mode.")
         if self.random_rotate:
@@ -163,7 +169,7 @@ class CustomEnv(MiniGridEnv):
         Returns:
             Optional[str]: The name of the color, or None if the character is not recognized.
         """
-        color_map = {'R': 'red', 'G': 'green', 'B': 'blue', 'Y': 'yellow', 'M': 'magenta', 'C': 'cyan'}
+        color_map = {'R': 'red', 'G': 'green', 'B': 'blue', 'P': 'purple', 'Y': 'yellow', 'G': 'grey'}
         return color_map.get(char.upper(), None)
 
     def char_to_object(self, char: str, color: str) -> Optional[WorldObj]:
