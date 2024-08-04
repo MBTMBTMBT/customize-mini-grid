@@ -71,6 +71,7 @@ class FullyObsSB3MLPWrapper(FullyObsWrapper):
         # Concatenate the flattened grid encoding with the direction encoding
         # final_obs = np.concatenate([processed_obs_flat, direction_onehot])
         final_obs = processed_obs_flat
+        # print(final_obs)
 
         return final_obs
 
@@ -79,13 +80,13 @@ if __name__ == '__main__':
     from custom_env import CustomEnv
     # Initialize the environment and wrapper
     env = CustomEnv(
-        txt_file_path='test.txt',
-        display_size=10,
+        txt_file_path='simple_test_corridor.txt',
+        display_size=6,
         display_mode="random",
         random_rotate=True,
         random_flip=True,
         custom_mission="Find the key and open the door.",
-        render_mode="human"
+        # render_mode="human"
     )
     env = FullyObsSB3MLPWrapper(env)
 
@@ -100,4 +101,4 @@ if __name__ == '__main__':
     from stable_baselines3 import PPO
 
     model = PPO("MlpPolicy", env, verbose=1)
-    model.learn(int(1e3))
+    model.learn(int(2e4))
