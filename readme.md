@@ -56,7 +56,7 @@ Customization
 You can customize the environment by changing the .txt file to create new puzzles or scenarios. Additionally, you can extend the CustomEnvFromFile class to add new object types or behaviors.
 Requirements
 
-    Python 3.10+
+    Python 3.8
     MiniGrid package
     Gymnasium package
 
