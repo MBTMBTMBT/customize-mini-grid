@@ -1,3 +1,4 @@
+import gymnasium as gym
 import numpy as np
 from minigrid.wrappers import FullyObsWrapper
 from minigrid.core.constants import OBJECT_TO_IDX, COLOR_TO_IDX, STATE_TO_IDX

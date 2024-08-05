@@ -30,7 +30,7 @@ class CustomEnv(MiniGridEnv):
             agent_start_pos: Tuple[int, int] = (1, 1),
             agent_start_dir: Optional[int] = None,
             custom_mission: str = "Explore and interact with objects.",
-            max_steps: Optional[int] = 16384,
+            max_steps: Optional[int] = 100000,
             **kwargs,
     ) -> None:
         """

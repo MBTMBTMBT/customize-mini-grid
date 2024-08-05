@@ -1,10 +1,11 @@
 import os
 import numpy as np
-from typing import Optional, Union, List
-from stable_baselines3.common.callbacks import BaseCallback, EventCallback
+from typing import Union, List
+from stable_baselines3.common.callbacks import EventCallback
 from stable_baselines3.common.vec_env import VecEnv
 from stable_baselines3.common.evaluation import evaluate_policy
-import gym
+from torch.utils.tensorboard import SummaryWriter
+import gymnasium as gym
 
 
 class EvalSaveCallback(EventCallback):
@@ -40,13 +41,21 @@ class EvalSaveCallback(EventCallback):
         self.latest_model_path = os.path.join(log_dir, "latest_model.zip")
         self.evaluations: List[float] = []
 
+        # TensorBoard writer
+        self.writer = SummaryWriter(log_dir)
+
         # Ensure directories exist
         os.makedirs(self.checkpoint_dir, exist_ok=True)
 
     def _on_step(self) -> bool:
         # Evaluate the model at specified frequency
         if self.n_calls % self.eval_freq == 0:
-            mean_reward, _ = self.evaluate_and_log()
+            print("Evaluating model...")
+            mean_reward, std_reward = self.evaluate_and_log()
+
+            # Log results to TensorBoard
+            self.writer.add_scalar('eval/mean_reward', mean_reward, self.num_timesteps)
+            self.writer.add_scalar('eval/std_reward', std_reward, self.num_timesteps)
 
             # Save the latest model checkpoint
             self.model.save(self.latest_model_path)
@@ -69,7 +78,7 @@ class EvalSaveCallback(EventCallback):
             self.eval_env,
             n_eval_episodes=self.n_eval_episodes,
             deterministic=self.deterministic,
-            return_episode_rewards=True
+            return_episode_rewards=True,
         )
 
         mean_reward = np.mean(episode_rewards)
@@ -81,6 +90,10 @@ class EvalSaveCallback(EventCallback):
             print(f"Evaluation: Mean reward: {mean_reward:.2f} +/- {std_reward:.2f}")
 
         # Save evaluation results to a file for further analysis
-        np.save(os.path.join(self.log_dir, 'evaluations.npy'), self.evaluations)
+        # np.save(os.path.join(self.log_dir, 'evaluations.npy'), self.evaluations)
 
         return mean_reward, std_reward
+
+    def _on_training_end(self) -> None:
+        """Close the TensorBoard writer when training ends."""
+        self.writer.close()
