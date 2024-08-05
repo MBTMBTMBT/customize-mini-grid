@@ -81,7 +81,7 @@ if __name__ == '__main__':
     from custom_env import CustomEnv
     # Initialize the environment and wrapper
     env = CustomEnv(
-        txt_file_path='maps/simple_test_corridor.txt',
+        txt_file_path='maps/short_corridor.txt',
         display_size=6,
         display_mode="random",
         random_rotate=True,

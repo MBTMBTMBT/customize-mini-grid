@@ -338,19 +338,19 @@ if __name__ == "__main__":
 
     # List of environments to train on
     environment_files = [
-        'simple_test_corridor.txt',
-        'simple_test_corridor_long.txt',
-        'simple_test_maze_small.txt',
-        'simple_test_door_key.txt',
+        'short_corridor.txt',
+        'long_corridor.txt',
+        'small_maze.txt',
+        'door_key.txt',
         # Add more file paths as needed
     ]
 
     # Training settings
     episodes_per_env = {
-        'simple_test_corridor.txt': 120,
-        'simple_test_corridor_long.txt': 120,
-        'simple_test_maze_small.txt': 120,
-        'simple_test_door_key.txt': 120,
+        'short_corridor.txt': 120,
+        'long_corridor.txt': 120,
+        'small_maze.txt': 120,
+        'door_key.txt': 120,
         # Define episodes for more environments as needed
     }
     batch_size = 32
