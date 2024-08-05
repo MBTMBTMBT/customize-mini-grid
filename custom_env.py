@@ -405,7 +405,7 @@ class CustomEnvFromFile(MiniGridEnv):
 if __name__ == "__main__":
     # Example usage of the CustomEnvFromFile class
     env = CustomEnv(
-        txt_file_path='test.txt',
+        txt_file_path='maps/test.txt',
         display_size=20,
         display_mode="random",
         random_rotate=True,
