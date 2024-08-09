@@ -160,6 +160,46 @@ class CustomEnv(MiniGridEnv):
         self.agent_pos = (x_coord, y_coord)
         self.agent_dir = flip_direction(rotate_direction(self.agent_start_dir, image_direction), flip)
 
+    def reset(
+        self,
+        *,
+        seed: int or None = None,
+        options: Dict[str, Any] or None = None,
+    ) -> Tuple[ObsType, Dict[str, Any]]:
+        super().reset(seed=seed)
+
+        # Reinitialize episode-specific variables
+        self.agent_pos = (-1, -1)
+        self.agent_dir = -1
+
+        # Generate a new random grid at the start of each episode
+        self._gen_grid(self.width, self.height)
+
+        # These fields should be defined by _gen_grid
+        assert (
+            self.agent_pos >= (0, 0)
+            if isinstance(self.agent_pos, tuple)
+            else all(self.agent_pos >= 0) and self.agent_dir >= 0
+        )
+
+        # Check that the agent doesn't overlap with an object
+        start_cell = self.grid.get(*self.agent_pos)
+        assert start_cell is None or start_cell.can_overlap()
+
+        # Item picked up, being carried, initially nothing
+        self.carrying = None
+
+        # Step count since episode start
+        self.step_count = 0
+
+        if self.render_mode == "human":
+            self.render()
+
+        # Return first observation
+        obs = self.gen_obs()
+
+        return obs, {}
+
     def step(
         self, action: ActType
     ) -> Tuple[ObsType, SupportsFloat, bool, bool, Dict[str, Any]]:

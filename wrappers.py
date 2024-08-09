@@ -1,10 +1,8 @@
-import gymnasium as gym
 import numpy as np
 from minigrid.wrappers import FullyObsWrapper
 from minigrid.core.constants import OBJECT_TO_IDX, COLOR_TO_IDX, STATE_TO_IDX
 from sklearn.preprocessing import OneHotEncoder
 from gymnasium import spaces
-
 
 # Initialise separate OneHotEncoders for each feature
 object_encoder = OneHotEncoder(categories=[range(len(OBJECT_TO_IDX))], sparse=False)
@@ -17,12 +15,16 @@ state_encoder = OneHotEncoder(categories=[range(max(len(STATE_TO_IDX), 4))], spa
 object_encoder.fit(np.array(range(len(OBJECT_TO_IDX))).reshape(-1, 1))
 colour_encoder.fit(np.array(range(len(COLOR_TO_IDX))).reshape(-1, 1))
 state_encoder.fit(np.array(range(len(STATE_TO_IDX))).reshape(-1, 1))
+
+
 # direction_encoder.fit(np.array(range(4)).reshape(-1, 1))
 
 
 class FullyObsSB3MLPWrapper(FullyObsWrapper):
-    def __init__(self, env):
+    def __init__(self, env, to_print=False, ):
         super().__init__(env)
+
+        self.to_print = to_print
 
         # Define the number of features per grid cell
         num_object_features = len(OBJECT_TO_IDX)  # Number of object types
@@ -70,36 +72,68 @@ class FullyObsSB3MLPWrapper(FullyObsWrapper):
         # direction_onehot = direction_encoder.transform(np.array([obs['direction']]).reshape(-1, 1)).flatten()
 
         # Concatenate the flattened grid encoding with the direction encoding
+        # not needed because it's also in state layer.
         # final_obs = np.concatenate([processed_obs_flat, direction_onehot])
         final_obs = processed_obs_flat
-        # print(final_obs)
+
+        if self.to_print:
+            # Print the image content and format
+            print(f"Image shape: {image.shape}")
+
+            # Print the grid with each layer separately
+            # Channel 0: Object types
+            print("Object Types (Channel 0):")
+            print(image[:, :, 0].transpose(1, 0))
+
+            # Channel 1: Colors
+            print("Colors (Channel 1):")
+            print(image[:, :, 1].transpose(1, 0))
+
+            # Channel 2: Additional State
+            print("Additional State (Channel 2):")
+            print(image[:, :, 2].transpose(1, 0))
+
+            direction = obs['direction']
+            mission = obs['mission']
+
+            # Print the direction and mission
+            print(f"Direction: {direction}")
+            print(f"Mission: {mission}")
+
+            print("final obs:")
+            print(final_obs)
 
         return final_obs
 
 
 if __name__ == '__main__':
     from custom_env import CustomEnv
+    from minigrid.manual_control import ManualControl
+
     # Initialize the environment and wrapper
     env = CustomEnv(
-        txt_file_path='maps/short_corridor.txt',
+        txt_file_path='maps/door_key.txt',
         display_size=6,
         display_mode="random",
         random_rotate=True,
         random_flip=True,
         custom_mission="Find the key and open the door.",
-        # render_mode="human"
+        render_mode="human"
     )
-    env = FullyObsSB3MLPWrapper(env)
+    env = FullyObsSB3MLPWrapper(env, to_print=True)
 
-    # Reset the environment to see initial observation
-    obs, info = env.reset()
+    manual_control = ManualControl(env)  # Allows manual control for testing and visualization
+    manual_control.start()  # Start the manual control interface
 
-    # Print the processed observation shape and content
-    print(f"Processed observation shape: {obs.shape}")
-    print(f"Processed observation:\n{obs}")
-
-    from minigrid.wrappers import ImgObsWrapper
-    from stable_baselines3 import PPO
-
-    model = PPO("MlpPolicy", env, verbose=1)
-    model.learn(int(2e4))
+    # # Reset the environment to see initial observation
+    # obs, info = env.reset()
+    #
+    # # Print the processed observation shape and content
+    # print(f"Processed observation shape: {obs.shape}")
+    # print(f"Processed observation:\n{obs}")
+    #
+    # from minigrid.wrappers import ImgObsWrapper
+    # from stable_baselines3 import PPO
+    #
+    # model = PPO("MlpPolicy", env, verbose=1)
+    # model.learn(int(2e4))
