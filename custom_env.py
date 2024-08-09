@@ -198,6 +198,13 @@ class CustomEnv(MiniGridEnv):
         # Return first observation
         obs = self.gen_obs()
 
+        obs["carrying"] = {
+            "carrying": None,
+            "carrying_colour": None,
+            "carrying_contains": None,
+            "carrying_contains_colour": None,
+        }
+
         return obs, {}
 
     def step(
