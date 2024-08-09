@@ -31,6 +31,10 @@ class FullyObsSB3MLPWrapper(FullyObsWrapper):
         num_colour_features = len(COLOR_TO_IDX)  # Number of colours
         num_state_features = max(len(STATE_TO_IDX), 4)  # Number of additional states
         # num_direction_features = 4  # One-hot for direction (4 possible directions)
+        num_carrying_features = len(OBJECT_TO_IDX)
+        num_carrying_colour_features = len(COLOR_TO_IDX)
+        num_carrying_contains_features = len(OBJECT_TO_IDX)
+        num_carrying_contains_colour_features = len(COLOR_TO_IDX)
 
         # Total number of features for each grid cell
         num_cell_features = num_object_features + num_colour_features + num_state_features
@@ -38,6 +42,8 @@ class FullyObsSB3MLPWrapper(FullyObsWrapper):
         # Observation space shape after flattening and adding direction
         num_cells = self.env.width * self.env.height
         total_features = num_cells * num_cell_features  # + num_direction_features
+        total_features += num_carrying_features + num_carrying_colour_features
+        total_features += num_carrying_contains_features + num_carrying_contains_colour_features
 
         # Define the new observation space
         self.observation_space = spaces.Box(
@@ -71,10 +77,16 @@ class FullyObsSB3MLPWrapper(FullyObsWrapper):
         # Add direction as a separate feature (one-hot encoding)
         # direction_onehot = direction_encoder.transform(np.array([obs['direction']]).reshape(-1, 1)).flatten()
 
-        # Concatenate the flattened grid encoding with the direction encoding
-        # not needed because it's also in state layer.
-        # final_obs = np.concatenate([processed_obs_flat, direction_onehot])
-        final_obs = processed_obs_flat
+        # Add carried things as separate features (one-hot encoding)
+        carrying_onehot = object_encoder.transform(np.array([obs['carrying']['carrying']]).reshape(-1, 1)).flatten()
+        carrying_colour_onehot = colour_encoder.transform(np.array([obs['carrying']['carrying_colour']]).reshape(-1, 1)).flatten()
+        carrying_contains_onehot = object_encoder.transform(np.array([obs['carrying']['carrying_contains']]).reshape(-1, 1)).flatten()
+        carrying_contains_colour_onehot = colour_encoder.transform(np.array([obs['carrying']['carrying_contains_colour']]).reshape(-1, 1)).flatten()
+
+        # Concatenate the flattened grid encoding with the direction encoding and carried things
+        # not needed for direction because it's also in state layer.
+        final_obs = np.concatenate([processed_obs_flat, carrying_onehot, carrying_colour_onehot, carrying_contains_onehot, carrying_contains_colour_onehot])
+        # final_obs = processed_obs_flat
 
         if self.to_print:
             # Print the image content and format

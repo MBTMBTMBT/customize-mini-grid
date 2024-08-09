@@ -199,10 +199,10 @@ class CustomEnv(MiniGridEnv):
         obs = self.gen_obs()
 
         obs["carrying"] = {
-            "carrying": None,
-            "carrying_colour": None,
-            "carrying_contains": None,
-            "carrying_contains_colour": None,
+            "carrying": 0,
+            "carrying_colour": 0,
+            "carrying_contains": 0,
+            "carrying_contains_colour": 0,
         }
 
         return obs, {}
@@ -214,10 +214,10 @@ class CustomEnv(MiniGridEnv):
 
         reward = -0.01  # give negative reward for normal steps
 
-        carrying: str or None = None  # object carried by the agent
-        carrying_colour: str or None = None
-        carrying_contains: str or None = None
-        carrying_contains_colour: str or None = None  # assume a box cannot contain another box.
+        carrying = 0  # object carried by the agent
+        carrying_colour = 0
+        carrying_contains = 0
+        carrying_contains_colour = 0  # assume a box cannot contain another box.
 
         terminated = False
         truncated = False
@@ -256,10 +256,11 @@ class CustomEnv(MiniGridEnv):
                     self.carrying = fwd_cell
                     self.carrying.cur_pos = np.array([-1, -1])
                     self.grid.set(fwd_pos[0], fwd_pos[1], None)
-                    carrying = self.carrying.type
-                    carrying_colour = self.carrying.color
-                    carrying_contains = None if self.carrying.contains is None else self.carrying.contains.type
-                    carrying_contains_colour = None if self.carrying.contains is None else self.carrying.contains.color
+
+                    carrying = OBJECT_TO_IDX[self.carrying.type]
+                    carrying_colour = COLOR_TO_IDX[self.carrying.color]
+                    carrying_contains = 0 if self.carrying.contains is None else OBJECT_TO_IDX[self.carrying.contains.type]
+                    carrying_contains_colour = 0 if self.carrying.contains is None else COLOR_TO_IDX[self.carrying.contains.color]
 
         # Drop an object
         elif action == self.actions.drop:
