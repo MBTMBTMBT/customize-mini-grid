@@ -206,6 +206,12 @@ class CustomEnv(MiniGridEnv):
         self.step_count += 1
 
         reward = -0.01  # give negative reward for normal steps
+
+        carrying: str or None = None  # object carried by the agent
+        carrying_colour: str or None = None
+        carrying_contains: str or None = None
+        carrying_contains_colour: str or None = None  # assume a box cannot contain another box.
+
         terminated = False
         truncated = False
 
@@ -243,6 +249,10 @@ class CustomEnv(MiniGridEnv):
                     self.carrying = fwd_cell
                     self.carrying.cur_pos = np.array([-1, -1])
                     self.grid.set(fwd_pos[0], fwd_pos[1], None)
+                    carrying = self.carrying.type
+                    carrying_colour = self.carrying.color
+                    carrying_contains = None if self.carrying.contains is None else self.carrying.contains.type
+                    carrying_contains_colour = None if self.carrying.contains is None else self.carrying.contains.color
 
         # Drop an object
         elif action == self.actions.drop:
@@ -270,6 +280,12 @@ class CustomEnv(MiniGridEnv):
             self.render()
 
         obs = self.gen_obs()
+        obs["carrying"] = {
+            "carrying": carrying,
+            "carrying_colour": carrying_colour,
+            "carrying_contains": carrying_contains,
+            "carrying_contains_colour": carrying_contains_colour,
+        }
 
         return obs, reward, terminated, truncated, {}
 
