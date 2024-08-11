@@ -75,6 +75,9 @@ class CustomEnv(MiniGridEnv):
         self.agent_start_dir = agent_start_dir
         self.mission = custom_mission
 
+        self.step_count = 0
+        self.skip_reset = False
+
     def determine_layout_size(self) -> int:
         """
         Reads the layout from the file to determine the environment's size based on its width and height.
@@ -149,7 +152,8 @@ class CustomEnv(MiniGridEnv):
             for x, (char, color_char) in enumerate(zip(obj_line, colour_line)):
                 colour = self.char_to_colour(color_char)
                 obj = self.char_to_object(char, colour)
-                obj.cur_pos = (x, y)  # to set the correct position og the obj
+                if obj is not None:
+                    obj.cur_pos = (x, y)  # to set the correct position og the obj
                 x_coord, y_coord = anchor_x + x, anchor_y + y
                 x_coord, y_coord = rotate_coordinate(x_coord, y_coord, image_direction, self.display_size)
                 x_coord, y_coord = flip_coordinate(x_coord, y_coord, flip, self.display_size)
@@ -168,31 +172,32 @@ class CustomEnv(MiniGridEnv):
         seed: int or None = None,
         options: Dict[str, Any] or None = None,
     ) -> Tuple[ObsType, Dict[str, Any]]:
-        super().reset(seed=seed)
+        if not self.skip_reset:
+            super().reset(seed=seed)
 
-        # Reinitialize episode-specific variables
-        self.agent_pos = (-1, -1)
-        self.agent_dir = -1
+            # Reinitialize episode-specific variables
+            self.agent_pos = (-1, -1)
+            self.agent_dir = -1
 
-        # Generate a new random grid at the start of each episode
-        self._gen_grid(self.width, self.height)
+            # Generate a new random grid at the start of each episode
+            self._gen_grid(self.width, self.height)
 
-        # These fields should be defined by _gen_grid
-        assert (
-            self.agent_pos >= (0, 0)
-            if isinstance(self.agent_pos, tuple)
-            else all(self.agent_pos >= 0) and self.agent_dir >= 0
-        )
+            # These fields should be defined by _gen_grid
+            assert (
+                self.agent_pos >= (0, 0)
+                if isinstance(self.agent_pos, tuple)
+                else all(self.agent_pos >= 0) and self.agent_dir >= 0
+            )
 
-        # Check that the agent doesn't overlap with an object
-        start_cell = self.grid.get(*self.agent_pos)
-        assert start_cell is None or start_cell.can_overlap()
+            # Check that the agent doesn't overlap with an object
+            start_cell = self.grid.get(*self.agent_pos)
+            assert start_cell is None or start_cell.can_overlap()
 
-        # Item picked up, being carried, initially nothing
-        self.carrying = None
+            # Item picked up, being carried, initially nothing
+            self.carrying = None
 
-        # Step count since episode start
-        self.step_count = 0
+            # Step count since episode start
+            self.step_count = 0
 
         if self.render_mode == "human":
             self.render()
@@ -203,9 +208,20 @@ class CustomEnv(MiniGridEnv):
         obs["carrying"] = {
             "carrying": 0,
             "carrying_colour": 0,
-            "carrying_contains": 0,
-            "carrying_contains_colour": 0,
+            # "carrying_contains": 0,
+            # "carrying_contains_colour": 0,
         }
+
+        if self.carrying is not None:
+            carrying = OBJECT_TO_IDX[self.carrying.type]
+            carrying_colour = COLOR_TO_IDX[self.carrying.color]
+
+            obs["carrying"] = {
+                "carrying": carrying,
+                "carrying_colour": carrying_colour,
+                # "carrying_contains": 0,
+                # "carrying_contains_colour": 0,
+            }
 
         return obs, {}
 
@@ -261,8 +277,8 @@ class CustomEnv(MiniGridEnv):
 
                     carrying = OBJECT_TO_IDX[self.carrying.type]
                     carrying_colour = COLOR_TO_IDX[self.carrying.color]
-                    carrying_contains = 0 if self.carrying.contains is None else OBJECT_TO_IDX[self.carrying.contains.type]
-                    carrying_contains_colour = 0 if self.carrying.contains is None else COLOR_TO_IDX[self.carrying.contains.color]
+                    # carrying_contains = 0 if self.carrying.contains is None else OBJECT_TO_IDX[self.carrying.contains.type]
+                    # carrying_contains_colour = 0 if self.carrying.contains is None else COLOR_TO_IDX[self.carrying.contains.color]
 
         # Drop an object
         elif action == self.actions.drop:
@@ -293,13 +309,17 @@ class CustomEnv(MiniGridEnv):
         obs["carrying"] = {
             "carrying": carrying,
             "carrying_colour": carrying_colour,
-            "carrying_contains": carrying_contains,
-            "carrying_contains_colour": carrying_contains_colour,
+            # "carrying_contains": carrying_contains,
+            # "carrying_contains_colour": carrying_contains_colour,
         }
 
         return obs, reward, terminated, truncated, {}
 
     def set_env_by_obs(self, obs: ObsType):
+        """
+        NOTES: setting the environment this way, Box will always be empty!!!
+        """
+        # self.skip_reset = True
         # values needed:
         # self.agent_pos, self.agent_dir
         # self.grid needs to be reset
@@ -309,8 +329,19 @@ class CustomEnv(MiniGridEnv):
         indices = np.argwhere(object_channel == OBJECT_TO_IDX["agent"])
         assert len(indices) == 1, "Only one agent can be in the map."
         self.agent_pos = tuple(indices[0])
-
-        pass
+        self.agent_dir = image[:, :, 2][self.agent_pos]
+        for x in range(image.shape[0]):
+            for y in range(image.shape[1]):
+                obj = self.int_to_object(int(image[x, y, 0]), IDX_TO_COLOR[image[x, y, 1]])
+                if obj is not None and obj.type == "door":
+                    obj.is_open = image[x, y, 2] == STATE_TO_IDX["open"]
+                    obj.is_locked = image[x, y, 2] == STATE_TO_IDX["locked"]
+                self.grid.set(x, y, obj)
+        self.carrying = self.int_to_object(obs['carrying']['carrying'][0], IDX_TO_COLOR[obs['carrying']['carrying_colour'][0]])
+        if self.carrying is not None:
+            self.carrying.cur_pos = np.array([-1, -1])
+        self.skip_reset = True
+        return self.reset()
 
     def char_to_colour(self, char: str) -> Optional[str]:
         """
@@ -342,6 +373,16 @@ class CustomEnv(MiniGridEnv):
             'G': lambda: Goal(), 'L': lambda: Lava(),
         }
         constructor = obj_map.get(char, None)
+        return constructor() if constructor else None
+
+    def int_to_object(self, val: int, color: str) -> Optional[WorldObj]:
+        obj_str = IDX_TO_OBJECT[val]
+        obj_map = {
+            'wall': lambda: Wall(), 'floor': lambda: Floor(), 'ball': lambda: Ball(color),
+            'key': lambda: Key(color), 'box': lambda: Box(color), 'door': lambda: Door(color, is_locked=True),
+            'goal': lambda: Goal(), 'lava': lambda: Lava(),
+        }
+        constructor = obj_map.get(obj_str, None)
         return constructor() if constructor else None
 
 

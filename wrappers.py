@@ -4,10 +4,13 @@ from minigrid.core.constants import OBJECT_TO_IDX, COLOR_TO_IDX, STATE_TO_IDX
 from sklearn.preprocessing import OneHotEncoder
 from gymnasium import spaces
 
+from customize_minigrid.custom_env import CustomEnv
+
 
 class FullyObsSB3MLPWrapper(FullyObsWrapper):
-    def __init__(self, env, to_print=False, ):
+    def __init__(self, env: CustomEnv, to_print=False, ):
         super().__init__(env)
+        self.env = env
 
         self.to_print = to_print
 
@@ -31,8 +34,8 @@ class FullyObsSB3MLPWrapper(FullyObsWrapper):
         # num_direction_features = 4  # One-hot for direction (4 possible directions)
         self.num_carrying_features = len(OBJECT_TO_IDX)
         self.num_carrying_colour_features = len(COLOR_TO_IDX)
-        self.num_carrying_contains_features = len(OBJECT_TO_IDX)
-        self.num_carrying_contains_colour_features = len(COLOR_TO_IDX)
+        # self.num_carrying_contains_features = len(OBJECT_TO_IDX)
+        # self.num_carrying_contains_colour_features = len(COLOR_TO_IDX)
 
         # Total number of features for each grid cell
         self.num_cell_features = self.num_object_features + self.num_colour_features + self.num_state_features
@@ -41,7 +44,7 @@ class FullyObsSB3MLPWrapper(FullyObsWrapper):
         self.num_cells = self.env.width * self.env.height
         self.total_features = self.num_cells * self.num_cell_features  # + num_direction_features
         self.total_features += self.num_carrying_features + self.num_carrying_colour_features
-        self.total_features += self.num_carrying_contains_features + self.num_carrying_contains_colour_features
+        # self.total_features += self.num_carrying_contains_features + self.num_carrying_contains_colour_features
 
         # Define the new observation space
         self.observation_space = spaces.Box(
@@ -56,7 +59,6 @@ class FullyObsSB3MLPWrapper(FullyObsWrapper):
 
         # Get the image part of the observation
         image = obs['image']  # (grid_size, grid_size, 3)
-        grid_size = image.shape[0]
 
         # Flatten the image to (grid_size * grid_size, num_channels)
         flattened_image = image.reshape(-1, image.shape[2])
@@ -78,12 +80,12 @@ class FullyObsSB3MLPWrapper(FullyObsWrapper):
         # Add carried things as separate features (one-hot encoding)
         carrying_onehot = self.object_encoder.transform(np.array([obs['carrying']['carrying']]).reshape(-1, 1)).flatten()
         carrying_colour_onehot = self.colour_encoder.transform(np.array([obs['carrying']['carrying_colour']]).reshape(-1, 1)).flatten()
-        carrying_contains_onehot = self.object_encoder.transform(np.array([obs['carrying']['carrying_contains']]).reshape(-1, 1)).flatten()
-        carrying_contains_colour_onehot = self.colour_encoder.transform(np.array([obs['carrying']['carrying_contains_colour']]).reshape(-1, 1)).flatten()
+        # carrying_contains_onehot = self.object_encoder.transform(np.array([obs['carrying']['carrying_contains']]).reshape(-1, 1)).flatten()
+        # carrying_contains_colour_onehot = self.colour_encoder.transform(np.array([obs['carrying']['carrying_contains_colour']]).reshape(-1, 1)).flatten()
 
         # Concatenate the flattened grid encoding with the direction encoding and carried things
         # not needed for direction because it's also in state layer.
-        final_obs = np.concatenate([processed_obs_flat, carrying_onehot, carrying_colour_onehot, carrying_contains_onehot, carrying_contains_colour_onehot])
+        final_obs = np.concatenate([processed_obs_flat, carrying_onehot, carrying_colour_onehot,]) #  carrying_contains_onehot, carrying_contains_colour_onehot])
         # final_obs = processed_obs_flat
 
         if self.to_print:
@@ -141,21 +143,26 @@ class FullyObsSB3MLPWrapper(FullyObsWrapper):
         start_idx += self.num_object_features
         carrying_colour = self.colour_encoder.inverse_transform(one_hot_vector[start_idx:start_idx + self.num_colour_features].reshape(1, -1))[0]
         start_idx += self.num_colour_features
-        carrying_contains = self.object_encoder.inverse_transform(one_hot_vector[start_idx:start_idx + self.num_carrying_contains_features].reshape(1, -1))[0]
-        start_idx += self.num_carrying_contains_features
-        carrying_contains_colour = self.colour_encoder.inverse_transform(one_hot_vector[start_idx:start_idx + self.num_carrying_contains_colour_features].reshape(1, -1))[0]
+        # carrying_contains = self.object_encoder.inverse_transform(one_hot_vector[start_idx:start_idx + self.num_carrying_contains_features].reshape(1, -1))[0]
+        # start_idx += self.num_carrying_contains_features
+        # carrying_contains_colour = self.colour_encoder.inverse_transform(one_hot_vector[start_idx:start_idx + self.num_carrying_contains_colour_features].reshape(1, -1))[0]
 
         decoded_obs = {
             'image': image,
             'carrying': {
                 'carrying': carrying,
                 'carrying_colour': carrying_colour,
-                'carrying_contains': carrying_contains,
-                'carrying_contains_colour': carrying_contains_colour,
+                # 'carrying_contains': carrying_contains,
+                # 'carrying_contains_colour': carrying_contains_colour,
             }
         }
 
         return decoded_obs
+
+    def set_env_with_code(self, one_hot_vector: np.ndarray):
+        decoded_obs = self.decode_to_original_obs(one_hot_vector)
+        obs, _ = self.env.set_env_by_obs(decoded_obs)
+        return self.observation(obs)
 
 
 def test_encode_decode_consistency(env: FullyObsSB3MLPWrapper, num_epochs=10, num_steps=10):
@@ -191,6 +198,12 @@ def test_encode_decode_consistency(env: FullyObsSB3MLPWrapper, num_epochs=10, nu
                 broken = True
                 break  # If a test fails, stop further testing
 
+            reconstructed_vector = env.set_env_with_code(encoded_vector)
+            if not np.array_equal(encoded_vector, reconstructed_vector):
+                print(f"Test failed at epoch {epoch+1}, step {step+1}: The reconstructed image does not match the original image.")
+                broken = True
+                break  # If a test fails, stop further testing
+
         if broken:
             print("Stopping tests due to failure.")
             break
@@ -210,14 +223,13 @@ if __name__ == '__main__':
         random_rotate=True,
         random_flip=True,
         custom_mission="Find the key and open the door.",
-        render_mode="human"
+        render_mode=None
     )
     env = FullyObsSB3MLPWrapper(env, to_print=False)
-
     test_encode_decode_consistency(env, num_epochs=10, num_steps=10000)
 
-    manual_control = ManualControl(env)  # Allows manual control for testing and visualization
-    manual_control.start()  # Start the manual control interface
+    # manual_control = ManualControl(env)  # Allows manual control for testing and visualization
+    # manual_control.start()  # Start the manual control interface
 
     # # Reset the environment to see initial observation
     # obs, info = env.reset()
