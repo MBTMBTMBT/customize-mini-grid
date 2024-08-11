@@ -86,34 +86,35 @@ class FullyObsSB3MLPWrapper(FullyObsWrapper):
         final_obs = np.concatenate([processed_obs_flat, carrying_onehot, carrying_colour_onehot, carrying_contains_onehot, carrying_contains_colour_onehot])
         # final_obs = processed_obs_flat
 
+        if self.to_print:
+            # Print the image content and format
+            print(f"Image shape: {image.shape}")
+
+            # Print the grid with each layer separately
+            # Channel 0: Object types
+            print("Object Types (Channel 0):")
+            print(image[:, :, 0].transpose(1, 0))
+
+            # Channel 1: Colors
+            print("Colors (Channel 1):")
+            print(image[:, :, 1].transpose(1, 0))
+
+            # Channel 2: Additional State
+            print("Additional State (Channel 2):")
+            print(image[:, :, 2].transpose(1, 0))
+
+            direction = obs['direction']
+            mission = obs['mission']
+
+            # Print the direction and mission
+            print(f"Direction: {direction}")
+            print(f"Mission: {mission}")
+
+            print("final obs:")
+            print(final_obs)
+
         return final_obs
 
-    # if self.to_print:
-    #     # Print the image content and format
-    #     print(f"Image shape: {image.shape}")
-    #
-    #     # Print the grid with each layer separately
-    #     # Channel 0: Object types
-    #     print("Object Types (Channel 0):")
-    #     print(image[:, :, 0].transpose(1, 0))
-    #
-    #     # Channel 1: Colors
-    #     print("Colors (Channel 1):")
-    #     print(image[:, :, 1].transpose(1, 0))
-    #
-    #     # Channel 2: Additional State
-    #     print("Additional State (Channel 2):")
-    #     print(image[:, :, 2].transpose(1, 0))
-    #
-    #     direction = obs['direction']
-    #     mission = obs['mission']
-    #
-    #     # Print the direction and mission
-    #     print(f"Direction: {direction}")
-    #     print(f"Mission: {mission}")
-    #
-    #     print("final obs:")
-    #     print(final_obs)
 
     def decode_to_original_obs(self, one_hot_vector: np.ndarray):
         """
