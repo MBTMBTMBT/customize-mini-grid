@@ -7,6 +7,7 @@ from minigrid.core.world_object import WorldObj
 from minigrid.manual_control import ManualControl
 from minigrid.minigrid_env import MiniGridEnv
 from gymnasium.core import ActType, ObsType
+from minigrid.core.constants import OBJECT_TO_IDX, COLOR_TO_IDX, STATE_TO_IDX
 
 
 class CustomEnv(MiniGridEnv):
@@ -148,6 +149,7 @@ class CustomEnv(MiniGridEnv):
             for x, (char, color_char) in enumerate(zip(obj_line, colour_line)):
                 colour = self.char_to_colour(color_char)
                 obj = self.char_to_object(char, colour)
+                obj.cur_pos = (x, y)  # to set the correct position og the obj
                 x_coord, y_coord = anchor_x + x, anchor_y + y
                 x_coord, y_coord = rotate_coordinate(x_coord, y_coord, image_direction, self.display_size)
                 x_coord, y_coord = flip_coordinate(x_coord, y_coord, flip, self.display_size)
@@ -296,6 +298,19 @@ class CustomEnv(MiniGridEnv):
         }
 
         return obs, reward, terminated, truncated, {}
+
+    def set_env_by_obs(self, obs: ObsType):
+        # values needed:
+        # self.agent_pos, self.agent_dir
+        # self.grid needs to be reset
+        # self.carrying, and everything within this carried object
+        image = obs["image"]
+        object_channel = image[:, :, 0]
+        indices = np.argwhere(object_channel == OBJECT_TO_IDX["agent"])
+        assert len(indices) == 1, "Only one agent can be in the map."
+        self.agent_pos = tuple(indices[0])
+
+        pass
 
     def char_to_colour(self, char: str) -> Optional[str]:
         """
