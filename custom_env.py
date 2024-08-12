@@ -335,6 +335,19 @@ class CustomEnv(MiniGridEnv):
                 # "carrying_contains_colour": carrying_contains_colour,
             }
 
+        obs["overlap"] = {
+            "obj": 0,
+            "colour": 0,
+        }
+
+        overlap = self.grid.get(*self.agent_pos)
+        if overlap is not None:
+            overlap_colour = COLOR_TO_IDX[overlap.color]
+            obs["overlap"] = {
+                "obj": OBJECT_TO_IDX[overlap.type],
+                "colour": overlap_colour,
+            }
+
         return obs, reward, terminated, truncated, {}
 
     def set_env_by_obs(self, obs: ObsType):
@@ -359,6 +372,11 @@ class CustomEnv(MiniGridEnv):
                     obj.is_open = image[x, y, 2] == STATE_TO_IDX["open"]
                     obj.is_locked = image[x, y, 2] == STATE_TO_IDX["locked"]
                 self.grid.set(x, y, obj)
+        if obs["overlap"]["obj"] is not None:
+            obj = self.int_to_object(obs["overlap"]["obj"][0], IDX_TO_COLOR[obs["overlap"]["colour"][0]])
+            if obj is not None and obj.type == "door":
+                obj.is_open = True  # overlap - for sure it's open
+            self.grid.set(self.agent_pos[0], self.agent_pos[1], obj)
         self.carrying = self.int_to_object(obs['carrying']['carrying'][0], IDX_TO_COLOR[obs['carrying']['carrying_colour'][0]])
         if self.carrying is not None:
             self.carrying.cur_pos = np.array([-1, -1])

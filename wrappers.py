@@ -44,6 +44,7 @@ class FullyObsSB3MLPWrapper(FullyObsWrapper):
         self.num_cells = self.env.width * self.env.height
         self.total_features = self.num_cells * self.num_cell_features  # + num_direction_features
         self.total_features += self.num_carrying_features + self.num_carrying_colour_features
+        self.total_features += self.num_carrying_features + self.num_carrying_colour_features
         # self.total_features += self.num_carrying_contains_features + self.num_carrying_contains_colour_features
 
         # Define the new observation space
@@ -83,9 +84,15 @@ class FullyObsSB3MLPWrapper(FullyObsWrapper):
         # carrying_contains_onehot = self.object_encoder.transform(np.array([obs['carrying']['carrying_contains']]).reshape(-1, 1)).flatten()
         # carrying_contains_colour_onehot = self.colour_encoder.transform(np.array([obs['carrying']['carrying_contains_colour']]).reshape(-1, 1)).flatten()
 
+        # add overlapped things
+        overlap_onehot = self.object_encoder.transform(
+            np.array([obs['overlap']['obj']]).reshape(-1, 1)).flatten()
+        overlap_colour_onehot = self.colour_encoder.transform(
+            np.array([obs['overlap']['colour']]).reshape(-1, 1)).flatten()
+
         # Concatenate the flattened grid encoding with the direction encoding and carried things
         # not needed for direction because it's also in state layer.
-        final_obs = np.concatenate([processed_obs_flat, carrying_onehot, carrying_colour_onehot,]) #  carrying_contains_onehot, carrying_contains_colour_onehot])
+        final_obs = np.concatenate([processed_obs_flat, carrying_onehot, carrying_colour_onehot, overlap_onehot, overlap_colour_onehot]) #  carrying_contains_onehot, carrying_contains_colour_onehot])
         # final_obs = processed_obs_flat
 
         if self.to_print:
@@ -146,6 +153,12 @@ class FullyObsSB3MLPWrapper(FullyObsWrapper):
         # carrying_contains = self.object_encoder.inverse_transform(one_hot_vector[start_idx:start_idx + self.num_carrying_contains_features].reshape(1, -1))[0]
         # start_idx += self.num_carrying_contains_features
         # carrying_contains_colour = self.colour_encoder.inverse_transform(one_hot_vector[start_idx:start_idx + self.num_carrying_contains_colour_features].reshape(1, -1))[0]
+        overlap = self.object_encoder.inverse_transform(
+            one_hot_vector[start_idx:start_idx + self.num_object_features].reshape(1, -1))[0]
+        start_idx += self.num_object_features
+        overlap_colour = self.colour_encoder.inverse_transform(
+            one_hot_vector[start_idx:start_idx + self.num_colour_features].reshape(1, -1))[0]
+        start_idx += self.num_colour_features
 
         decoded_obs = {
             'image': image,
@@ -154,6 +167,10 @@ class FullyObsSB3MLPWrapper(FullyObsWrapper):
                 'carrying_colour': carrying_colour,
                 # 'carrying_contains': carrying_contains,
                 # 'carrying_contains_colour': carrying_contains_colour,
+            },
+            'overlap': {
+                "obj": overlap,
+                "colour": overlap_colour,
             }
         }
 
@@ -179,16 +196,18 @@ def test_encode_decode_consistency(env: FullyObsSB3MLPWrapper, num_epochs=10, nu
         encoded_vector, _ = env.reset()  # Reset the environment to get the initial observation
         broken = False
 
-        actions = [1, 1, 3, 2, 5, 2, 2]
+        # actions = [1, 1, 3, 2, 5, 2, 2]
         # Test the encode-decode consistency for each step
-        for action, step in zip(actions, range(num_steps)):
-            # action = env.action_space.sample()  # Random action
+        # for action, step in zip(actions, range(num_steps)):
+        for step in range(num_steps):
+            action = env.action_space.sample()  # Random action
             if action == 3:
                 pass
             encoded_vector, _, done, truncated, _ = env.step(action)  # Get new observation after action
 
             # Check if the episode should end
             if done or truncated:
+                env.env.skip_reset = False
                 print(f"Episode ended at epoch {epoch+1}, step {step+1}: {'due to environment termination.' if done else 'due to truncation.'}")
                 break
 
@@ -220,14 +239,14 @@ if __name__ == '__main__':
 
     # Initialize the environment and wrapper
     env = CustomEnv(
-        txt_file_path='maps/door_key.txt',
-        display_size=6,
+        txt_file_path='maps/test.txt',
+        display_size=10,
         display_mode="random",
         agent_start_dir=2,
         random_rotate=True,
         random_flip=True,
         custom_mission="Find the key and open the door.",
-        render_mode="human",
+        render_mode=None,
     )
     env = FullyObsSB3MLPWrapper(env, to_print=False)
     test_encode_decode_consistency(env, num_epochs=10, num_steps=10000)
