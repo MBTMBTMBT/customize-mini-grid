@@ -179,9 +179,12 @@ def test_encode_decode_consistency(env: FullyObsSB3MLPWrapper, num_epochs=10, nu
         encoded_vector, _ = env.reset()  # Reset the environment to get the initial observation
         broken = False
 
+        actions = [1, 1, 3, 2, 5, 2, 2]
         # Test the encode-decode consistency for each step
-        for step in range(num_steps):
-            action = env.action_space.sample()  # Random action
+        for action, step in zip(actions, range(num_steps)):
+            # action = env.action_space.sample()  # Random action
+            if action == 3:
+                pass
             encoded_vector, _, done, truncated, _ = env.step(action)  # Get new observation after action
 
             # Check if the episode should end
@@ -217,13 +220,14 @@ if __name__ == '__main__':
 
     # Initialize the environment and wrapper
     env = CustomEnv(
-        txt_file_path='maps/test.txt',
-        display_size=10,
+        txt_file_path='maps/door_key.txt',
+        display_size=6,
         display_mode="random",
+        agent_start_dir=2,
         random_rotate=True,
         random_flip=True,
         custom_mission="Find the key and open the door.",
-        render_mode=None
+        render_mode="human",
     )
     env = FullyObsSB3MLPWrapper(env, to_print=False)
     test_encode_decode_consistency(env, num_epochs=10, num_steps=10000)

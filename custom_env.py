@@ -270,15 +270,10 @@ class CustomEnv(MiniGridEnv):
         # Pick up an object
         elif action == self.actions.pickup:
             if fwd_cell and fwd_cell.can_pickup():
-                if self.carrying is None:
+                if self.carrying is None or self.carrying == 0:
                     self.carrying = fwd_cell
                     self.carrying.cur_pos = np.array([-1, -1])
                     self.grid.set(fwd_pos[0], fwd_pos[1], None)
-
-                    carrying = OBJECT_TO_IDX[self.carrying.type]
-                    carrying_colour = COLOR_TO_IDX[self.carrying.color]
-                    # carrying_contains = 0 if self.carrying.contains is None else OBJECT_TO_IDX[self.carrying.contains.type]
-                    # carrying_contains_colour = 0 if self.carrying.contains is None else COLOR_TO_IDX[self.carrying.contains.color]
 
         # Drop an object
         elif action == self.actions.drop:
@@ -306,12 +301,26 @@ class CustomEnv(MiniGridEnv):
             self.render()
 
         obs = self.gen_obs()
+
         obs["carrying"] = {
-            "carrying": carrying,
-            "carrying_colour": carrying_colour,
+            "carrying": 0,
+            "carrying_colour": 0,
             # "carrying_contains": carrying_contains,
             # "carrying_contains_colour": carrying_contains_colour,
         }
+
+        if self.carrying is not None and self.carrying != 0:
+            carrying = OBJECT_TO_IDX[self.carrying.type]
+            carrying_colour = COLOR_TO_IDX[self.carrying.color]
+            # carrying_contains = 0 if self.carrying.contains is None else OBJECT_TO_IDX[self.carrying.contains.type]
+            # carrying_contains_colour = 0 if self.carrying.contains is None else COLOR_TO_IDX[self.carrying.contains.color]
+
+            obs["carrying"] = {
+                "carrying": carrying,
+                "carrying_colour": carrying_colour,
+                # "carrying_contains": carrying_contains,
+                # "carrying_contains_colour": carrying_contains_colour,
+            }
 
         return obs, reward, terminated, truncated, {}
 
