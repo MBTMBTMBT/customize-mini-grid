@@ -223,6 +223,19 @@ class CustomEnv(MiniGridEnv):
                 # "carrying_contains_colour": 0,
             }
 
+        obs["overlap"] = {
+            "obj": 0,
+            "colour": 0,
+        }
+
+        overlap = self.grid.get(*self.agent_pos)
+        if overlap is not None:
+            overlap_colour = COLOR_TO_IDX[overlap.color]
+            obs["overlap"] = {
+                "obj": OBJECT_TO_IDX[overlap.type],
+                "colour": overlap_colour,
+            }
+
         return obs, {}
 
     def step(
