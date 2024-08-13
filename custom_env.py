@@ -243,7 +243,7 @@ class CustomEnv(MiniGridEnv):
     ) -> Tuple[ObsType, SupportsFloat, bool, bool, Dict[str, Any]]:
         self.step_count += 1
 
-        reward = -0.01  # give negative reward for normal steps
+        reward = -0.05  # give negative reward for normal steps
 
         carrying = 0  # object carried by the agent
         carrying_colour = 0
