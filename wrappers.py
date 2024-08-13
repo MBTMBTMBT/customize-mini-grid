@@ -181,6 +181,10 @@ class FullyObsSB3MLPWrapper(FullyObsWrapper):
         obs, _ = self.env.set_env_by_obs(decoded_obs)
         return self.observation(obs)
 
+    def force_reset(self):
+        self.env.skip_reset = False
+        self.env.reset()
+
 
 def test_encode_decode_consistency(env: FullyObsSB3MLPWrapper, num_epochs=10, num_steps=10):
     """
