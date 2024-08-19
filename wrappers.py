@@ -243,8 +243,8 @@ if __name__ == '__main__':
 
     # Initialize the environment and wrapper
     env = CustomEnv(
-        txt_file_path='maps/test.txt',
-        display_size=10,
+        txt_file_path='maps/short_corridor.txt',
+        display_size=6,
         display_mode="random",
         agent_start_dir=2,
         random_rotate=True,
