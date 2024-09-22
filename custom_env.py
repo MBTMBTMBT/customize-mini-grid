@@ -29,7 +29,7 @@ class CustomEnv(MiniGridEnv):
             display_mode: Optional[str] = "middle",
             random_rotate: bool = False,
             random_flip: bool = False,
-            agent_start_pos: Tuple[int, int] or None = (1, 1),
+            agent_start_pos: Tuple[int, int] or None = None,
             agent_start_dir: Optional[int] = None,
             custom_mission: str = "Explore and interact with objects.",
             max_steps: Optional[int] = 100000,
