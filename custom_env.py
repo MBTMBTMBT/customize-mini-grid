@@ -526,7 +526,7 @@ def flip_direction(direction, flip_mode):
 
 if __name__ == "__main__":
     env = CustomEnv(
-        txt_file_path='maps/test.txt',
+        txt_file_path='maps/short_corridor.txt',
         display_size=20,
         display_mode="random",
         random_rotate=True,
