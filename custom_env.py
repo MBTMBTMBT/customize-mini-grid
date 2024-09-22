@@ -29,7 +29,7 @@ class CustomEnv(MiniGridEnv):
             display_mode: Optional[str] = "middle",
             random_rotate: bool = False,
             random_flip: bool = False,
-            agent_start_pos: Tuple[int, int] = (1, 1),
+            agent_start_pos: Tuple[int, int] or None = (1, 1),
             agent_start_dir: Optional[int] = None,
             custom_mission: str = "Explore and interact with objects.",
             max_steps: Optional[int] = 100000,
@@ -148,6 +148,8 @@ class CustomEnv(MiniGridEnv):
             flip = random.choice([0, 1])
         else:
             flip = 0
+
+        self.empty_list = []
         for y, (obj_line, colour_line) in enumerate(zip(self.layout, self.colour_layout)):
             for x, (char, color_char) in enumerate(zip(obj_line, colour_line)):
                 colour = self.char_to_colour(color_char)
@@ -158,12 +160,18 @@ class CustomEnv(MiniGridEnv):
                 x_coord, y_coord = rotate_coordinate(x_coord, y_coord, image_direction, self.display_size)
                 x_coord, y_coord = flip_coordinate(x_coord, y_coord, flip, self.display_size)
                 self.grid.set(x_coord, y_coord, obj)
+                if obj is None:
+                    self.empty_list.append((x_coord, y_coord))
 
         # update agent's coordinate
-        x_coord, y_coord = anchor_x + self.agent_start_pos[0], anchor_y + self.agent_start_pos[1]
-        x_coord, y_coord = rotate_coordinate(x_coord, y_coord, image_direction, self.display_size)
-        x_coord, y_coord = flip_coordinate(x_coord, y_coord, flip, self.display_size)
-        self.agent_pos = (x_coord, y_coord)
+        if self.agent_start_pos is not None:
+            x_coord, y_coord = anchor_x + self.agent_start_pos[0], anchor_y + self.agent_start_pos[1]
+            x_coord, y_coord = rotate_coordinate(x_coord, y_coord, image_direction, self.display_size)
+            x_coord, y_coord = flip_coordinate(x_coord, y_coord, flip, self.display_size)
+            self.agent_pos = (x_coord, y_coord)
+        else:
+            self.agent_pos = random.choice(self.empty_list)
+
         self.agent_dir = flip_direction(rotate_direction(self.agent_start_dir, image_direction), flip)
 
     def reset(
