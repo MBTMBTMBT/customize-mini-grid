@@ -59,7 +59,7 @@ def generate_maze(width, height):
 
 if __name__ == '__main__':
     # Example usage
-    width = 7
-    height = 7
+    width = 8
+    height = 8
     maze = generate_maze(width, height)
     print(maze)
