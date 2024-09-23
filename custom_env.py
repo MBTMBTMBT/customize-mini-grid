@@ -24,7 +24,8 @@ class CustomEnv(MiniGridEnv):
 
     def __init__(
             self,
-            txt_file_path: str,
+            txt_file_path: Optional[str],
+            rand_gen_shape: Tuple[int, int],
             display_size: Optional[int] = None,
             display_mode: Optional[str] = "middle",
             random_rotate: bool = False,
@@ -41,6 +42,10 @@ class CustomEnv(MiniGridEnv):
         If 'size' is not specified, it determines the size based on the content of the given text file.
         """
         self.txt_file_path = txt_file_path
+        self.rand_gen_shape = rand_gen_shape
+
+        assert txt_file_path is not None or rand_gen_shape is not None, "Either 'txt_file_path' or 'rand_gen_shape' must be specified."
+        assert not (txt_file_path is not None and rand_gen_shape is not None), "Only one of 'txt_file_path' and 'rand_gen_shape' can be specified."
 
         # Determine the size of the environment from given file
         self.layout_size = self.determine_layout_size()
@@ -62,7 +67,12 @@ class CustomEnv(MiniGridEnv):
         if agent_start_dir is None:
             agent_start_dir = random.choice(list(range(0, 5)))
 
-        self.layout, self.colour_layout = self.read_file()
+        self.random_layout = False
+        if self.txt_file_path:
+            self.layout, self.colour_layout = self.read_file()
+        else:
+            self.random_layout = True
+            self.layout, self.colour_layout = self.generate_random_maze()
 
         # Initialize the MiniGrid environment with the determined size
         super().__init__(
@@ -79,18 +89,15 @@ class CustomEnv(MiniGridEnv):
         self.skip_reset = False
 
     def determine_layout_size(self) -> int:
-        """
-        Reads the layout from the file to determine the environment's size based on its width and height.
-
-        Returns:
-            int: The larger value between the height and width of the layout to ensure a square grid.
-        """
-        with open(self.txt_file_path, 'r') as file:
-            sections = file.read().split('\n\n')
-            layout_lines = sections[0].strip().split('\n')
-            height = len(layout_lines)
-            width = max(len(line) for line in layout_lines)
-            return max(width, height)
+        if self.txt_file_path:
+            with open(self.txt_file_path, 'r') as file:
+                sections = file.read().split('\n\n')
+                layout_lines = sections[0].strip().split('\n')
+                height = len(layout_lines)
+                width = max(len(line) for line in layout_lines)
+                return max(width, height)
+        else:
+            return max(self.rand_gen_shape)
 
     def read_file(self) -> Tuple[List[List[Optional[WorldObj]]], List[List[Optional[str]]]]:
         layout = []
@@ -115,6 +122,59 @@ class CustomEnv(MiniGridEnv):
                 layout.append(line)
                 colour_layout.append(colour_line)
         return layout, colour_layout
+
+    def generate_random_maze(self) -> Tuple[List[List[str]], List[List[str]]]:
+        width, height = self.rand_gen_shape
+
+        # Initialize the maze with walls
+        maze = [['W' for _ in range(width)] for _ in range(height)]
+
+        # Choose a random starting point that is not on the border
+        start_x = random.randint(1, width - 2)
+        start_y = random.randint(1, height - 2)
+        maze[start_y][start_x] = 'E'
+
+        # Choose a random goal position different from the starting position
+        goal_x, goal_y = start_x, start_y
+        while goal_x == start_x and goal_y == start_y:
+            goal_x = random.randint(1, width - 2)
+            goal_y = random.randint(1, height - 2)
+        maze[goal_y][goal_x] = 'G'
+
+        # Create a path from start to goal using DFS
+        def carve_path(x, y):
+            directions = [(0, 1), (1, 0), (0, -1), (-1, 0)]
+            random.shuffle(directions)
+
+            for dx, dy in directions:
+                nx, ny = x + dx, y + dy
+                if 1 <= nx < width - 1 and 1 <= ny < height - 1 and maze[ny][nx] == 'W':
+                    adjacent_non_walls = sum(1 for dx2, dy2 in directions
+                                             if 0 <= nx + dx2 < width and 0 <= ny + dy2 < height and maze[ny + dy2][
+                                                 nx + dx2] in ('E', 'G'))
+                    if adjacent_non_walls < 2:
+                        maze[ny][nx] = 'E'
+                        carve_path(nx, ny)
+
+        carve_path(start_x, start_y)
+
+        # Ensure path from goal is connected
+        def ensure_path(x, y):
+            directions = [(0, 1), (1, 0), (0, -1), (-1, 0)]
+            random.shuffle(directions)
+
+            for dx, dy in directions:
+                nx, ny = x + dx, y + dy
+                if 1 <= nx < width - 1 and 1 <= ny < height - 1 and maze[ny][nx] == 'W':
+                    maze[ny][nx] = 'E'
+                    ensure_path(nx, ny)
+
+        ensure_path(goal_x, goal_y)
+
+        # Duplicate maze as colour layout
+        color_maze = [row[:] for row in maze]
+
+        return maze, color_maze
 
     def _gen_grid(self, width: int, height: int) -> None:
         """
@@ -186,6 +246,9 @@ class CustomEnv(MiniGridEnv):
             # Reinitialize episode-specific variables
             self.agent_pos = (-1, -1)
             self.agent_dir = -1
+
+            if self.random_layout:
+                self.layout, self.colour_layout = self.generate_random_maze()
 
             # Generate a new random grid at the start of each episode
             self._gen_grid(self.width, self.height)
@@ -526,13 +589,14 @@ def flip_direction(direction, flip_mode):
 
 if __name__ == "__main__":
     env = CustomEnv(
-        txt_file_path='maps/short_corridor.txt',
+        txt_file_path=None,
+        rand_gen_shape=(10, 10),
         display_size=20,
         display_mode="random",
         random_rotate=True,
         random_flip=True,
         custom_mission="Find the key and open the door.",
-        render_mode="human"
+        render_mode="human",
     )
     manual_control = ManualControl(env)  # Allows manual control for testing and visualization
     manual_control.start()  # Start the manual control interface
