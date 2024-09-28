@@ -25,7 +25,7 @@ class CustomEnv(MiniGridEnv):
     def __init__(
             self,
             txt_file_path: Optional[str],
-            rand_gen_shape: Tuple[int, int],
+            rand_gen_shape: Optional[Tuple[int, int]],
             display_size: Optional[int] = None,
             display_mode: Optional[str] = "middle",
             random_rotate: bool = False,
