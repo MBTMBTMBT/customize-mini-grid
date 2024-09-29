@@ -250,22 +250,13 @@ class FullyObsImageWrapper(FullyObsSB3MLPWrapper):
         )
 
     def observation(self, obs):
-        # Obtain the encoded observation from the parent wrapper
-        encoded_obs = super().observation(obs)
-
-        # Extract the 'image' component from the observation
-        image = obs['image']
+        image = self.env.get_frame(highlight=False, tile_size=self.env.get_wrapper_attr('tile_size'))
 
         # Convert the image to a float32 numpy array in the range [0, 1]
         image = image.astype(np.float32) / 255.0
 
         # Reorder dimensions from (height, width, channels) to (channels, height, width)
         image = np.transpose(image, (2, 0, 1))
-
-        # Store the encoded observation in the info dictionary
-        obs_info = {
-            "encoded_obs": encoded_obs
-        }
 
         if self.to_print:
             # Display the 2D image array and additional information
@@ -275,14 +266,16 @@ class FullyObsImageWrapper(FullyObsSB3MLPWrapper):
             print(f"Direction: {obs['direction']}")
 
         # Return the image as the new observation
-        return image, obs_info
+        return image
 
     def reset(self, **kwargs):
         # Reset the environment and obtain the initial observation
-        obs = self.env.reset(**kwargs)
+        obs, info = self.env.reset(**kwargs)
 
         # Wrap the observation into the new format
-        image, info = self.observation(obs)
+        image = self.observation(obs)
+
+        info['encoded_obs'] = super().observation(obs)
 
         return image, info
 
@@ -291,10 +284,9 @@ class FullyObsImageWrapper(FullyObsSB3MLPWrapper):
         obs, reward, done, truncated, info = self.env.step(action)
 
         # Wrap the observation into the new format
-        image, obs_info = self.observation(obs)
+        image = self.observation(obs)
 
-        # Update the info dictionary with the encoded observation
-        info.update(obs_info)
+        info['encoded_obs'] = super().observation(obs)
 
         return image, reward, done, truncated, info
 
@@ -305,17 +297,30 @@ if __name__ == '__main__':
 
     # Initialize the environment and wrapper
     env = CustomEnv(
-        txt_file_path='maps/short_corridor.txt',
-        display_size=6,
-        display_mode="random",
-        agent_start_dir=2,
+        txt_file_path=None,
+        rand_gen_shape=(4, 4),
+        display_size=4,
+        display_mode='random',
         random_rotate=True,
         random_flip=True,
-        custom_mission="Find the key and open the door.",
-        render_mode=None,
+        custom_mission="Explore and interact with objects.",
+        max_steps=128,
     )
     env = FullyObsSB3MLPWrapper(env, to_print=False)
-    test_encode_decode_consistency(env, num_epochs=10, num_steps=10000)
+    obs, info = env.reset()
+    env = CustomEnv(
+        txt_file_path=None,
+        rand_gen_shape=(4, 4),
+        display_size=4,
+        display_mode='random',
+        random_rotate=True,
+        random_flip=True,
+        custom_mission="Explore and interact with objects.",
+        max_steps=128,
+    )
+    env = FullyObsImageWrapper(env, to_print=False)
+    obs, info = env.reset()
+    # test_encode_decode_consistency(env, num_epochs=10, num_steps=10000)
 
     # manual_control = ManualControl(env)  # Allows manual control for testing and visualization
     # manual_control.start()  # Start the manual control interface
