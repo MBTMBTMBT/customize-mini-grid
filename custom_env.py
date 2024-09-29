@@ -88,6 +88,8 @@ class CustomEnv(MiniGridEnv):
         self.step_count = 0
         self.skip_reset = False
 
+        self.tile_size = 8
+
     def determine_layout_size(self) -> int:
         if self.txt_file_path:
             with open(self.txt_file_path, 'r') as file:
