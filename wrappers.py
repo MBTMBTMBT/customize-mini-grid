@@ -237,6 +237,65 @@ def test_encode_decode_consistency(env: FullyObsSB3MLPWrapper, num_epochs=10, nu
         print("All tests passed successfully.")
 
 
+class FullyObsImageWrapper(FullyObsSB3MLPWrapper):
+    def __init__(self, env: CustomEnv, to_print=False):
+        super().__init__(env, to_print)
+
+        # Update the observation space to reflect the new 2D image output
+        self.observation_space = spaces.Box(
+            low=0.0,
+            high=1.0,
+            shape=(self.env.height, self.env.width, 3),
+            dtype=np.float32,
+        )
+
+    def observation(self, obs):
+        # Obtain the encoded observation from the parent wrapper
+        encoded_obs = super().observation(obs)
+
+        # Extract the 'image' component from the observation
+        image = obs['image']
+
+        # Convert the image to a float32 numpy array in the range [0, 1]
+        image = image.astype(np.float32) / 255.0
+
+        # Store the encoded observation in the info dictionary
+        obs_info = {
+            "encoded_obs": encoded_obs
+        }
+
+        if self.to_print:
+            # Display the 2D image array and additional information
+            print("2D Image array (normalized to 0-1):")
+            print(image)
+            print(f"Mission: {obs['mission']}")
+            print(f"Direction: {obs['direction']}")
+
+        # Return the image as the new observation
+        return image, obs_info
+
+    def reset(self, **kwargs):
+        # Reset the environment and obtain the initial observation
+        obs = self.env.reset(**kwargs)
+
+        # Wrap the observation into the new format
+        image, info = self.observation(obs)
+
+        return image, info
+
+    def step(self, action):
+        # Perform the step in the environment
+        obs, reward, done, truncated, info = self.env.step(action)
+
+        # Wrap the observation into the new format
+        image, obs_info = self.observation(obs)
+
+        # Update the info dictionary with the encoded observation
+        info.update(obs_info)
+
+        return image, reward, done, truncated, info
+
+
 if __name__ == '__main__':
     from custom_env import CustomEnv
     from minigrid.manual_control import ManualControl
