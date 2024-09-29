@@ -259,6 +259,9 @@ class FullyObsImageWrapper(FullyObsSB3MLPWrapper):
         # Convert the image to a float32 numpy array in the range [0, 1]
         image = image.astype(np.float32) / 255.0
 
+        # Reorder dimensions from (height, width, channels) to (channels, height, width)
+        image = np.transpose(image, (2, 0, 1))
+
         # Store the encoded observation in the info dictionary
         obs_info = {
             "encoded_obs": encoded_obs
