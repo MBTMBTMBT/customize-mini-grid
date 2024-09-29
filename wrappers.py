@@ -245,7 +245,11 @@ class FullyObsImageWrapper(FullyObsSB3MLPWrapper):
         self.observation_space = spaces.Box(
             low=0.0,
             high=1.0,
-            shape=(self.env.height, self.env.width, 3),
+            shape=(
+                3,
+                self.env.height * self.env.get_wrapper_attr('tile_size'),
+                self.env.width * self.env.get_wrapper_attr('tile_size'),
+            ),
             dtype=np.float32,
         )
 
