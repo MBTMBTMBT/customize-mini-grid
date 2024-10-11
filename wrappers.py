@@ -247,7 +247,7 @@ class FullyObsImageWrapper(FullyObsSB3MLPWrapper):
             high=1.0,
             shape=(
                 3,
-                self.env.height * self.env.get_wrapper_attr('tile_size'),
+                (self.env.height + 1) * self.env.get_wrapper_attr('tile_size'),
                 self.env.width * self.env.get_wrapper_attr('tile_size'),
             ),
             dtype=np.float32,
