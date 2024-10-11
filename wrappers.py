@@ -137,7 +137,7 @@ class FullyObsSB3MLPWrapper(FullyObsWrapper):
         grid_obs = grid_encoded.reshape(self.env.width * self.env.height, self.num_cell_features)
 
         # Decoding grid information
-        object_types = self.object_encoder.inverse_transform(grid_obs[:, :seobslf.num_object_features]).reshape(self.env.width, self.env.height)
+        object_types = self.object_encoder.inverse_transform(grid_obs[:, :self.num_object_features]).reshape(self.env.width, self.env.height)
         colours = self.colour_encoder.inverse_transform(grid_obs[:, self.num_object_features:self.num_object_features + self.num_colour_features]).reshape(self.env.width, self.env.height)
         states = self.state_encoder.inverse_transform(grid_obs[:, self.num_object_features + self.num_colour_features:self.num_cell_features]).reshape(self.env.width, self.env.height)
 
