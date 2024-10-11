@@ -1,4 +1,5 @@
 import random
+import warnings
 from typing import Optional, Tuple, List, Dict, Any, SupportsFloat
 from minigrid.core.grid import Grid
 from minigrid.core.mission import MissionSpace
@@ -36,6 +37,7 @@ class CustomEnv(MiniGridEnv):
             custom_mission: str = "Explore and interact with objects.",
             max_steps: Optional[int] = 100000,
             render_carried_objs: bool = True,
+            add_random_door_key: bool = False,
             **kwargs,
     ) -> None:
         """
@@ -69,12 +71,16 @@ class CustomEnv(MiniGridEnv):
         if agent_start_dir is None:
             agent_start_dir = random.choice(list(range(0, 5)))
 
+        self.add_random_door_key = add_random_door_key
+
         self.random_layout = False
         if self.txt_file_path:
             self.layout, self.colour_layout = self.read_file()
+            if self.add_random_door_key:
+                warnings.warn("Random door key will not be added, since using settled map.")
         else:
             self.random_layout = True
-            self.layout, self.colour_layout = self.generate_random_maze()
+            self.layout, self.colour_layout = self.generate_random_maze(random_door_key=self.add_random_door_key)
 
         # Initialize the MiniGrid environment with the determined size
         super().__init__(
@@ -264,7 +270,7 @@ class CustomEnv(MiniGridEnv):
                 colour_layout.append(colour_line)
         return layout, colour_layout
 
-    def generate_random_maze(self) -> Tuple[List[List[str]], List[List[str]]]:
+    def generate_random_maze(self, random_door_key=False) -> Tuple[List[List[str]], List[List[str]]]:
         width, height = self.rand_gen_shape
 
         # Initialize the maze with walls
@@ -389,7 +395,7 @@ class CustomEnv(MiniGridEnv):
             self.agent_dir = -1
 
             if self.random_layout:
-                self.layout, self.colour_layout = self.generate_random_maze()
+                self.layout, self.colour_layout = self.generate_random_maze(random_door_key=self.add_random_door_key)
 
             # Generate a new random grid at the start of each episode
             self._gen_grid(self.width, self.height)
@@ -725,8 +731,8 @@ def flip_direction(direction, flip_mode):
 
 if __name__ == "__main__":
     env = CustomEnv(
-        txt_file_path='maps/test.txt',
-        rand_gen_shape=None,
+        txt_file_path=None,
+        rand_gen_shape=(20, 20),
         display_size=None,
         display_mode="random",
         random_rotate=True,
