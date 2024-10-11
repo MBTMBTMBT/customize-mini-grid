@@ -270,7 +270,7 @@ class CustomEnv(MiniGridEnv):
                 colour_layout.append(colour_line)
         return layout, colour_layout
 
-    def generate_random_maze(self, random_door_key=False) -> Tuple[List[List[str]], List[List[str]]]:
+    def generate_random_maze(self, random_door_key=True) -> Tuple[List[List[str]], List[List[str]]]:
         width, height = self.rand_gen_shape
 
         # Initialize the maze with walls
@@ -288,26 +288,27 @@ class CustomEnv(MiniGridEnv):
             goal_y = random.randint(1, height - 2)
         maze[goal_y][goal_x] = 'G'
 
-        # Create a path from start to goal using DFS
+        # Create a path from start to goal using DFS (Depth-First Search)
         def carve_path(x, y):
-            directions = [(0, 1), (1, 0), (0, -1), (-1, 0)]
+            directions = [(0, 1), (1, 0), (0, -1), (-1, 0)]  # Only horizontal and vertical directions
             random.shuffle(directions)
 
             for dx, dy in directions:
                 nx, ny = x + dx, y + dy
                 if 1 <= nx < width - 1 and 1 <= ny < height - 1 and maze[ny][nx] == 'W':
-                    adjacent_non_walls = sum(1 for dx2, dy2 in directions
-                                             if 0 <= nx + dx2 < width and 0 <= ny + dy2 < height and maze[ny + dy2][
-                                                 nx + dx2] in ('E', 'G'))
+                    adjacent_non_walls = sum(
+                        1 for dx2, dy2 in directions
+                        if 0 <= nx + dx2 < width and 0 <= ny + dy2 < height and maze[ny + dy2][nx + dx2] in ('E', 'G')
+                    )
                     if adjacent_non_walls < 2:
                         maze[ny][nx] = 'E'
                         carve_path(nx, ny)
 
         carve_path(start_x, start_y)
 
-        # Ensure path from goal is connected
+        # Ensure the path from the goal is connected
         def ensure_path(x, y):
-            directions = [(0, 1), (1, 0), (0, -1), (-1, 0)]
+            directions = [(0, 1), (1, 0), (0, -1), (-1, 0)]  # Horizontal and vertical only
             random.shuffle(directions)
 
             for dx, dy in directions:
@@ -318,10 +319,118 @@ class CustomEnv(MiniGridEnv):
 
         ensure_path(goal_x, goal_y)
 
-        # Duplicate maze as colour layout
-        color_maze = [row[:] for row in maze]
+        if random_door_key:
+            while True:
+                # Save the current state of the maze
+                old_maze = [row[:] for row in maze]
 
-        return maze, color_maze
+                # Split the maze either horizontally or vertically
+                split_horizontal = random.choice([True, False])
+                if split_horizontal:
+                    split_y = random.randint(1, height - 2)
+                    door_x = random.randint(1, width - 2)
+                    door_y = split_y
+                    for x in range(1, width - 1):
+                        maze[split_y][x] = 'W'
+                    maze[split_y][door_x] = 'D'
+                else:
+                    split_x = random.randint(1, width - 2)
+                    door_y = random.randint(1, height - 2)
+                    door_x = split_x
+                    for y in range(1, height - 1):
+                        maze[y][split_x] = 'W'
+                    maze[door_y][split_x] = 'D'
+
+                # Place the key on the opposite side of the goal
+                def place_key():
+                    if split_horizontal:
+                        for y in range(1, height - 1):
+                            for x in range(1, width - 1):
+                                if maze[y][x] == 'E' and (
+                                        (goal_y <= split_y and y > split_y) or (goal_y > split_y and y < split_y)):
+                                    maze[y][x] = 'K'
+                                    return x, y
+                    else:
+                        for y in range(1, height - 1):
+                            for x in range(1, width - 1):
+                                if maze[y][x] == 'E' and (
+                                        (goal_x <= split_x and x > split_x) or (goal_x > split_x and x < split_x)):
+                                    maze[y][x] = 'K'
+                                    return x, y
+
+                key_pos = place_key()
+
+                # Ensure the key-door-goal path is solvable
+                if key_pos and self.is_solvable_with_key(maze, (start_x, start_y), key_pos, (door_x, door_y),
+                                                         (goal_x, goal_y)):
+                    break  # If the maze is solvable, stop
+                else:
+                    maze = old_maze  # If unsolvable, rollback and retry
+
+            # Assign colours to the door and key
+            door_key_colour_idx = random.randint(0, len(COLOR_TO_IDX) - 1)
+            door_key_colour = IDX_TO_COLOR.get(door_key_colour_idx)
+
+            # Update the colour maze
+            colour_maze = [row[:] for row in maze]
+            for y in range(height):
+                for x in range(width):
+                    if maze[y][x] == 'D':
+                        colour_maze[y][x] = door_key_colour.capitalize()[0]  # Door with colour
+                    elif maze[y][x] == 'K':
+                        colour_maze[y][x] = door_key_colour.capitalize()[0]  # Key with colour
+
+        else:
+            # Duplicate maze as colour layout
+            colour_maze = [row[:] for row in maze]
+
+        return maze, colour_maze
+
+    def is_solvable_with_key(self, maze, start_pos, key_pos, door_pos, goal_pos):
+        """
+        Check if the maze is solvable: the agent can reach the key, door, and goal.
+        :param maze: The maze matrix
+        :param start_pos: The starting position
+        :param key_pos: The key position
+        :param door_pos: The door position
+        :param goal_pos: The goal position
+        :return: True if the maze is solvable, False otherwise
+        """
+        # Check if the path from start to the key is reachable
+        if not self.is_path_clear(maze, start_pos, key_pos):
+            return False
+
+        # Check if the path from the key to the door is reachable
+        if not self.is_path_clear(maze, key_pos, door_pos):
+            return False
+
+        # Check if the path from the door to the goal is reachable
+        return self.is_path_clear(maze, door_pos, goal_pos)
+
+    def is_path_clear(self, maze, start, end):
+        """
+        Check if there is a clear path between two points in the maze.
+        Only consider horizontal and vertical moves.
+        """
+        queue = [start]
+        visited = set()
+        visited.add(start)
+        directions = [(0, 1), (1, 0), (0, -1), (-1, 0)]  # Only horizontal and vertical moves
+
+        while queue:
+            current = queue.pop(0)
+            if current == end:
+                return True
+
+            x, y = current
+            for dx, dy in directions:
+                nx, ny = x + dx, y + dy
+                if 0 <= nx < len(maze[0]) and 0 <= ny < len(maze) and (nx, ny) not in visited:
+                    if maze[ny][nx] in ('E', 'G', 'D', 'K'):  # Consider door and key as passable
+                        visited.add((nx, ny))
+                        queue.append((nx, ny))
+
+        return False
 
     def _gen_grid(self, width: int, height: int) -> None:
         """
@@ -739,6 +848,7 @@ if __name__ == "__main__":
         random_flip=True,
         custom_mission="Find the key and open the door.",
         render_mode="human",
+        add_random_door_key=True,
     )
     manual_control = ManualControl(env)  # Allows manual control for testing and visualization
     manual_control.start()  # Start the manual control interface
