@@ -7,7 +7,8 @@ from minigrid.core.world_object import WorldObj
 from minigrid.manual_control import ManualControl
 from minigrid.minigrid_env import MiniGridEnv
 from gymnasium.core import ActType, ObsType
-from minigrid.core.constants import OBJECT_TO_IDX, COLOR_TO_IDX, STATE_TO_IDX
+from minigrid.core.constants import OBJECT_TO_IDX, COLOR_TO_IDX, STATE_TO_IDX, TILE_PIXELS
+from PIL import Image, ImageDraw, ImageFont
 
 
 class CustomEnv(MiniGridEnv):
@@ -34,6 +35,7 @@ class CustomEnv(MiniGridEnv):
             agent_start_dir: Optional[int] = None,
             custom_mission: str = "Explore and interact with objects.",
             max_steps: Optional[int] = 100000,
+            render_carried_objs: bool = True,
             **kwargs,
     ) -> None:
         """
@@ -89,6 +91,143 @@ class CustomEnv(MiniGridEnv):
         self.skip_reset = False
 
         self.tile_size = 8
+
+        self.render_carried_objs = render_carried_objs
+
+    def get_frame(
+        self,
+        highlight: bool = True,
+        tile_size: int = TILE_PIXELS,
+        agent_pov: bool = False,
+    ):
+        frame = super().get_frame(highlight, tile_size, agent_pov)
+        if not self.render_carried_objs:
+            return frame
+        else:
+            return self.render_with_carried_objects(frame)
+
+    def render_with_carried_objects(self, full_image):
+        """
+        Renders the image of the environment with an extra row at the bottom displaying the item
+        carried by the agent, if any. The agent can carry at most one item.
+
+        :param full_image: The original image rendered by get_full_render.
+        :return: Modified image with an additional row displaying the carried item, if any.
+        """
+        tile_size = self.tile_size
+
+        carrying_objects = {
+            "carrying": 1,
+            "carrying_colour": 0,
+        }
+
+        # Check if the agent is carrying an object
+        if self.carrying is not None and self.carrying != 0:
+            carrying = OBJECT_TO_IDX[self.carrying.type]
+            carrying_colour = COLOR_TO_IDX[self.carrying.color]
+
+            carrying_objects = {
+                "carrying": carrying,
+                "carrying_colour": carrying_colour,
+            }
+
+        # Prepare to extract carried item and colour indices
+        object_idx = carrying_objects.get('carrying', 1)
+        colour_idx = carrying_objects.get('carrying_colour', 0)
+
+        # Map indices to actual objects and colours
+        object_name = IDX_TO_OBJECT.get(object_idx, "empty")
+        colour_name = IDX_TO_COLOR.get(colour_idx, "black")
+
+        # Create a grey background for the carried item row (matching the tile size)
+        item_row = np.full((tile_size, tile_size, 3), fill_value=100, dtype=np.uint8)  # Default to grey
+
+        if object_name != "empty":
+            # Use the actual symbol for the object rather than the first letter
+            symbol = self._get_object_symbol(object_name)
+            # Generate a tile with the symbol and colour for the object carried by the agent
+            item_row = self._draw_symbol_on_tile(item_row, symbol, colour_name)
+
+        # Extend the original image with this new row at the bottom
+        full_height, full_width, _ = full_image.shape
+
+        # Ensure both the full_image and the item_row have the same width (adjust if necessary)
+        # Put the item on the right side of the row (align to the bottom-right corner)
+        full_image_width = full_image.shape[1]
+        item_row_full = np.full((tile_size, full_image_width, 3), fill_value=100, dtype=np.uint8)  # Grey background
+        item_row_full[:, -tile_size:, :] = item_row  # Add item to the right
+
+        output_image = np.vstack([full_image, item_row_full])
+
+        return output_image
+
+    def _get_object_symbol(self, object_name):
+        """
+        Get the letter representing the object.
+        This function returns a letter for the object.
+        """
+        if object_name == "ball":
+            return "B"  # Use 'B' to represent the ball
+        elif object_name == "box":
+            return "X"  # Use 'X' to represent the box
+        else:
+            # Use the first letter of the object name as its symbol for other objects
+            return object_name[0].upper() if object_name else "?"  # Return '?' if the object has no valid name
+
+    def _draw_symbol_on_tile(self, tile, symbol, colour_name="black"):
+        """
+        Draw the given symbol (a letter) on a larger tile and resize it to the actual tile size.
+        This helps improve the clarity and centring of the symbol.
+
+        :param tile: The tile image (a NumPy array) where the symbol will be drawn.
+        :param symbol: The symbol (a string, e.g., 'K' for key) to be drawn on the tile.
+        :param colour_name: The colour of the object to draw on the tile.
+        :return: The tile image with the symbol drawn on it, resized to the original tile size.
+        """
+        tile_size = tile.shape[0]  # Original tile size
+        render_size = int(tile_size * 1.5)
+
+        # Create a larger tile for rendering
+        large_tile = np.full((render_size, render_size, 3), fill_value=100, dtype=np.uint8)
+
+        # Convert NumPy array (large tile) to PIL Image
+        large_tile_image = Image.fromarray(large_tile)
+
+        # Create a drawing context for the larger tile
+        draw = ImageDraw.Draw(large_tile_image)
+
+        # Load a font, use default PIL font if no TTF file is available
+        try:
+            font = ImageFont.truetype("arial.ttf", size=render_size // 2)  # Larger font size for better clarity
+        except IOError:
+            font = ImageFont.load_default()
+
+        # Get the size of the large tile
+        tile_width, tile_height = large_tile_image.size
+
+        # Get the bounding box of the symbol to centre it on the tile
+        bbox = draw.textbbox((0, 0), symbol, font=font)
+        text_width, text_height = bbox[2] - bbox[0], bbox[3] - bbox[1]
+
+        # Calculate the position to centre the text
+        position = ((tile_width - text_width) // 2, (tile_height - text_height) // 2)
+
+        # Get the colour for the symbol from the colour name
+        colour_rgb = COLORS.get(colour_name, [0, 0, 0])  # Default to black if colour_name is invalid
+
+        # Draw a filled rectangle with the colour in the large tile
+        draw.rectangle([0, 0, tile_width, tile_height], fill=tuple(colour_rgb))
+
+        # Draw the symbol in the centre of the large tile
+        draw.text(position, symbol, font=font, fill=(0, 0, 0))
+
+        # Convert the large tile back to a NumPy array
+        large_tile_np = np.array(large_tile_image)
+
+        # Resize the large tile back to the original tile size
+        tile_resized = Image.fromarray(large_tile_np).resize((tile_size, tile_size))
+
+        return np.array(tile_resized)
 
     def determine_layout_size(self) -> int:
         if self.txt_file_path:
@@ -279,7 +418,7 @@ class CustomEnv(MiniGridEnv):
         obs = self.gen_obs()
 
         obs["carrying"] = {
-            "carrying": 0,
+            "carrying": 1,
             "carrying_colour": 0,
             # "carrying_contains": 0,
             # "carrying_contains_colour": 0,
@@ -297,7 +436,7 @@ class CustomEnv(MiniGridEnv):
             }
 
         obs["overlap"] = {
-            "obj": 0,
+            "obj": 1,
             "colour": 0,
         }
 
@@ -317,11 +456,6 @@ class CustomEnv(MiniGridEnv):
         self.step_count += 1
 
         reward = -0.05  # give negative reward for normal steps
-
-        carrying = 0  # object carried by the agent
-        carrying_colour = 0
-        carrying_contains = 0
-        carrying_contains_colour = 0  # assume a box cannot contain another box.
 
         terminated = False
         truncated = False
@@ -389,7 +523,7 @@ class CustomEnv(MiniGridEnv):
         obs = self.gen_obs()
 
         obs["carrying"] = {
-            "carrying": 0,
+            "carrying": 1,
             "carrying_colour": 0,
             # "carrying_contains": carrying_contains,
             # "carrying_contains_colour": carrying_contains_colour,
@@ -591,9 +725,9 @@ def flip_direction(direction, flip_mode):
 
 if __name__ == "__main__":
     env = CustomEnv(
-        txt_file_path=None,
-        rand_gen_shape=(10, 10),
-        display_size=20,
+        txt_file_path='maps/test.txt',
+        rand_gen_shape=None,
+        display_size=None,
         display_mode="random",
         random_rotate=True,
         random_flip=True,

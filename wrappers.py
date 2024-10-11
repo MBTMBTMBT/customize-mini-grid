@@ -238,7 +238,7 @@ def test_encode_decode_consistency(env: FullyObsSB3MLPWrapper, num_epochs=10, nu
 
 
 class FullyObsImageWrapper(FullyObsSB3MLPWrapper):
-    def __init__(self, env: CustomEnv, to_print=False):
+    def __init__(self, env: CustomEnv, to_print=False,):
         super().__init__(env, to_print)
 
         # Update the observation space to reflect the new 2D image output
@@ -281,10 +281,6 @@ class FullyObsImageWrapper(FullyObsSB3MLPWrapper):
 
         info['encoded_obs'] = super().observation(obs)
 
-        for k in obs.keys():
-            if k != 'image':
-                info[k] = obs[k]
-
         return image, info
 
     def step(self, action):
@@ -295,10 +291,6 @@ class FullyObsImageWrapper(FullyObsSB3MLPWrapper):
         image = self.observation(obs)
 
         info['encoded_obs'] = super().observation(obs)
-
-        for k in obs.keys():
-            if k != 'image':
-                info[k] = obs[k]
 
         return image, reward, done, truncated, info
 
