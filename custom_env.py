@@ -281,14 +281,14 @@ class CustomEnv(MiniGridEnv):
         start_y = random.randint(1, height - 2)
         maze[start_y][start_x] = 'E'
 
-        # Choose a random goal position different from the starting position
+        # Ensure the goal is successfully placed
         goal_x, goal_y = start_x, start_y
-        while goal_x == start_x and goal_y == start_y:
+        while (goal_x == start_x and goal_y == start_y) or maze[goal_y][goal_x] != 'W':
             goal_x = random.randint(1, width - 2)
             goal_y = random.randint(1, height - 2)
         maze[goal_y][goal_x] = 'G'
 
-        # Create a path from start to goal using DFS (Depth-First Search)
+        # Create a path from start to goal using DFS
         def carve_path(x, y):
             directions = [(0, 1), (1, 0), (0, -1), (-1, 0)]  # Only horizontal and vertical directions
             random.shuffle(directions)
@@ -341,6 +341,11 @@ class CustomEnv(MiniGridEnv):
                         maze[y][split_x] = 'W'
                     maze[door_y][split_x] = 'D'
 
+                # Ensure the door and goal don't overlap
+                if (door_x, door_y) == (goal_x, goal_y):
+                    maze = old_maze  # Rollback if door overlaps with the goal
+                    continue
+
                 # Place the key on the opposite side of the goal
                 def place_key():
                     if split_horizontal:
@@ -348,15 +353,19 @@ class CustomEnv(MiniGridEnv):
                             for x in range(1, width - 1):
                                 if maze[y][x] == 'E' and (
                                         (goal_y <= split_y and y > split_y) or (goal_y > split_y and y < split_y)):
-                                    maze[y][x] = 'K'
-                                    return x, y
+                                    if (x, y) != (goal_x, goal_y) and (x, y) != (
+                                    door_x, door_y):  # Avoid overlap with goal and door
+                                        maze[y][x] = 'K'
+                                        return x, y
                     else:
                         for y in range(1, height - 1):
                             for x in range(1, width - 1):
                                 if maze[y][x] == 'E' and (
                                         (goal_x <= split_x and x > split_x) or (goal_x > split_x and x < split_x)):
-                                    maze[y][x] = 'K'
-                                    return x, y
+                                    if (x, y) != (goal_x, goal_y) and (x, y) != (
+                                    door_x, door_y):  # Avoid overlap with goal and door
+                                        maze[y][x] = 'K'
+                                        return x, y
 
                 key_pos = place_key()
 
@@ -841,7 +850,7 @@ def flip_direction(direction, flip_mode):
 if __name__ == "__main__":
     env = CustomEnv(
         txt_file_path=None,
-        rand_gen_shape=(20, 20),
+        rand_gen_shape=(7, 7),
         display_size=None,
         display_mode="random",
         random_rotate=True,
