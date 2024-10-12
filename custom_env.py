@@ -622,6 +622,7 @@ class CustomEnv(MiniGridEnv):
                     self.carrying = fwd_cell
                     self.carrying.cur_pos = np.array([-1, -1])
                     self.grid.set(fwd_pos[0], fwd_pos[1], None)
+                    reward += 0.1
 
         # Drop an object
         elif action == self.actions.drop:
@@ -629,11 +630,17 @@ class CustomEnv(MiniGridEnv):
                 self.grid.set(fwd_pos[0], fwd_pos[1], self.carrying)
                 self.carrying.cur_pos = fwd_pos
                 self.carrying = None
+                reward -= 0.1
 
         # Toggle/activate an object
         elif action == self.actions.toggle:
             if fwd_cell:
                 fwd_cell.toggle(self, fwd_pos)
+                if fwd_cell.type == "door":
+                    if fwd_cell.is_open:
+                        reward += 0.1
+                    else:
+                        reward -= 0.1
 
         # Done action (not used by default)
         elif action == self.actions.done:
