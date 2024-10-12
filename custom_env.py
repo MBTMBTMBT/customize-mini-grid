@@ -613,7 +613,7 @@ class CustomEnv(MiniGridEnv):
                 reward = -1
 
             if fwd_cell is not None and fwd_cell.type == "wall" or fwd_cell.type == "door":
-                reward -= 0.5
+                reward -= 0.05
 
         # Pick up an object
         elif action == self.actions.pickup:
