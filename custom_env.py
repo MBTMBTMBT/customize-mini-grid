@@ -610,6 +610,10 @@ class CustomEnv(MiniGridEnv):
                 # instead of the original 1 - 0.9 * (self.step_count / self.max_steps)
             if fwd_cell is not None and fwd_cell.type == "lava":
                 terminated = True
+                reward = -1
+
+            if fwd_cell is not None and fwd_cell.type == "wall" or fwd_cell.type == "door":
+                reward -= 0.5
 
         # Pick up an object
         elif action == self.actions.pickup:
