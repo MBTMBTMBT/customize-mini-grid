@@ -506,7 +506,7 @@ class CustomEnv(MiniGridEnv):
         options: Dict[str, Any] or None = None,
     ) -> Tuple[ObsType, Dict[str, Any]]:
         if not self.skip_reset:
-            super().reset(seed=seed)
+            # super().reset(seed=seed)
 
             # Reinitialize episode-specific variables
             self.agent_pos = (-1, -1)
