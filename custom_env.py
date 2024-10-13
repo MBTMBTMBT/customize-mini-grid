@@ -612,8 +612,8 @@ class CustomEnv(MiniGridEnv):
                 terminated = True
                 reward = -1
 
-            if fwd_cell is not None and (fwd_cell.type == "wall" or fwd_cell.type == "door" and not fwd_cell.is_open):
-                reward -= 0.05
+            # if fwd_cell is not None and (fwd_cell.type == "wall" or fwd_cell.type == "door" and not fwd_cell.is_open):
+            #     reward -= 0.05
 
         # Pick up an object
         elif action == self.actions.pickup:
@@ -635,12 +635,16 @@ class CustomEnv(MiniGridEnv):
         # Toggle/activate an object
         elif action == self.actions.toggle:
             if fwd_cell:
+                was_open = False
+                if fwd_cell.type == "door" and fwd_cell.is_open:
+                    was_open = True
                 fwd_cell.toggle(self, fwd_pos)
                 if fwd_cell.type == "door":
                     if fwd_cell.is_open:
                         reward += 0.1
                     else:
-                        reward -= 0.1
+                        if was_open:
+                            reward -= 0.1
 
         # Done action (not used by default)
         elif action == self.actions.done:
