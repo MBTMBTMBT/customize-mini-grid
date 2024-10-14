@@ -607,6 +607,7 @@ class CustomEnv(MiniGridEnv):
             if fwd_cell is not None and fwd_cell.type == "goal":
                 terminated = True
                 reward = 1  # give settled 1 as reward,
+                # print("Succeeded!")
                 # instead of the original 1 - 0.9 * (self.step_count / self.max_steps)
             if fwd_cell is not None and fwd_cell.type == "lava":
                 terminated = True
@@ -623,6 +624,7 @@ class CustomEnv(MiniGridEnv):
                     self.carrying.cur_pos = np.array([-1, -1])
                     self.grid.set(fwd_pos[0], fwd_pos[1], None)
                     reward += 0.1
+                    # print("Key picked up!")
 
         # Drop an object
         elif action == self.actions.drop:
@@ -641,7 +643,9 @@ class CustomEnv(MiniGridEnv):
                 fwd_cell.toggle(self, fwd_pos)
                 if fwd_cell.type == "door":
                     if fwd_cell.is_open:
-                        reward += 0.1
+                        if not was_open:
+                            reward += 0.1
+                            # print("Door is open!")
                     else:
                         if was_open:
                             reward -= 0.1
