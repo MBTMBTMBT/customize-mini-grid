@@ -96,7 +96,7 @@ class CustomEnv(MiniGridEnv):
         self.step_count = 0
         self.skip_reset = False
 
-        self.tile_size = 15
+        self.tile_size = 16
 
         self.render_carried_objs = render_carried_objs
 
