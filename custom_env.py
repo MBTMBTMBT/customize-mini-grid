@@ -73,6 +73,8 @@ class CustomEnv(MiniGridEnv):
 
         self.add_random_door_key = add_random_door_key
 
+
+        self.rand_pos_layout = None
         self.random_layout = False
         if self.txt_file_path:
             # self.layout, self.colour_layout = self.read_file()
@@ -82,8 +84,6 @@ class CustomEnv(MiniGridEnv):
         else:
             self.random_layout = True
             self.layout, self.colour_layout = self.generate_random_maze(random_door_key=self.add_random_door_key)
-
-        self.rand_pos_layout = None
 
         # Initialize the MiniGrid environment with the determined size
         super().__init__(
@@ -495,58 +495,190 @@ class CustomEnv(MiniGridEnv):
         Generates the grid for the environment based on the layout specified in the text file.
         """
         self.grid = Grid(width, height)
+
+        # Initialize the grid with walls
         for x in range(width):
             for y in range(height):
                 self.grid.set(x, y, Wall())
+
         free_width = self.display_size - len(self.layout[0])
         free_height = self.display_size - len(self.layout)
+
         if self.display_mode == "middle":
             anchor_x = free_width // 2
             anchor_y = free_height // 2
         elif self.display_mode == "random":
-            if free_width > 0:
-                anchor_x = random.choice(list(range(free_width)))
-            else:
-                anchor_x = 0
-            if free_height > 0:
-                anchor_y = random.choice(list(range(free_height)))
-            else:
-                anchor_y = 0
+            anchor_x = random.choice(range(max(free_width, 1))) if free_width > 0 else 0
+            anchor_y = random.choice(range(max(free_height, 1))) if free_height > 0 else 0
         else:
             raise ValueError("Invalid display mode.")
-        if self.random_rotate:
-            image_direction = random.choice([0, 1, 2, 3])
-        else:
-            image_direction = 0
-        if self.random_flip:
-            flip = random.choice([0, 1])
-        else:
-            flip = 0
 
-        self.empty_list = []
-        for y, (obj_line, colour_line) in enumerate(zip(self.layout, self.colour_layout)):
-            for x, (char, color_char) in enumerate(zip(obj_line, colour_line)):
-                colour = self.char_to_colour(color_char)
-                obj = self.char_to_object(char, colour)
-                if obj is not None:
-                    obj.cur_pos = (x, y)  # to set the correct position og the obj
-                x_coord, y_coord = anchor_x + x, anchor_y + y
-                x_coord, y_coord = rotate_coordinate(x_coord, y_coord, image_direction, self.display_size)
-                x_coord, y_coord = flip_coordinate(x_coord, y_coord, flip, self.display_size)
-                self.grid.set(x_coord, y_coord, obj)
-                if obj is None:
-                    self.empty_list.append((x_coord, y_coord))
+        image_direction = random.choice([0, 1, 2, 3]) if self.random_rotate else 0
+        flip = random.choice([0, 1]) if self.random_flip else 0
 
-        # update agent's coordinate
+        # Lists to track available positions for keys, agent, shared positions (B), and goal positions (G)
+        empty_list = []
+        key_positions = []
+        agent_positions = []
+        shared_positions = []  # Positions where both agent and key can be placed ('B')
+        goal_positions = []  # Positions where goal ('G') can be placed
+
+        # Processing layout and rand_pos_layout
+        if self.rand_pos_layout:
+            for y, (obj_line, colour_line, rand_pos_line) in enumerate(
+                    zip(self.layout, self.colour_layout, self.rand_pos_layout)):
+                for x, (char, color_char, rand_pos_char) in enumerate(zip(obj_line, colour_line, rand_pos_line)):
+                    if color_char == '_':  # Handle random colour case
+                        color_char = random.choice(['R', 'G', 'B', 'P', 'Y', 'E'])
+                    colour = self.char_to_colour(color_char)
+
+                    obj = self.char_to_object(char, colour)
+
+                    x_coord, y_coord = anchor_x + x, anchor_y + y
+                    x_coord, y_coord = rotate_coordinate(x_coord, y_coord, image_direction, self.display_size)
+                    x_coord, y_coord = flip_coordinate(x_coord, y_coord, flip, self.display_size)
+                    self.grid.set(x_coord, y_coord, obj)
+
+                    if obj is None:
+                        empty_list.append((x_coord, y_coord))
+
+                    if rand_pos_char == 'K':  # Mark key positions, but do not assign a colour yet
+                        key_positions.append((x_coord, y_coord))  # Only store the position
+                    elif rand_pos_char == 'A':  # Mark agent positions
+                        agent_positions.append((x_coord, y_coord))
+                    elif rand_pos_char == 'B':  # Mark shared positions for both agent and key
+                        shared_positions.append((x_coord, y_coord))
+                    elif rand_pos_char == 'G':  # Mark goal positions
+                        goal_positions.append((x_coord, y_coord))
+
+        else:
+            # Original behaviour if no rand_pos_layout
+            for y, (obj_line, colour_line) in enumerate(zip(self.layout, self.colour_layout)):
+                for x, (char, color_char) in enumerate(zip(obj_line, colour_line)):
+                    if color_char == '_':
+                        color_char = random.choice(['R', 'G', 'B', 'P', 'Y', 'E'])
+                    colour = self.char_to_colour(color_char)
+
+                    obj = self.char_to_object(char, colour)
+
+                    x_coord, y_coord = anchor_x + x, anchor_y + y
+                    x_coord, y_coord = rotate_coordinate(x_coord, y_coord, image_direction, self.display_size)
+                    x_coord, y_coord = flip_coordinate(x_coord, y_coord, flip, self.display_size)
+                    self.grid.set(x_coord, y_coord, obj)
+
+                    if obj is None:
+                        empty_list.append((x_coord, y_coord))
+
+        # Handle agent placement
+        all_agent_positions = agent_positions + shared_positions  # Include 'B' positions for agent placement
         if self.agent_start_pos is not None:
+            warnings.warn("Agent start position is provided, ignoring 'A' positions.")
             x_coord, y_coord = anchor_x + self.agent_start_pos[0], anchor_y + self.agent_start_pos[1]
             x_coord, y_coord = rotate_coordinate(x_coord, y_coord, image_direction, self.display_size)
             x_coord, y_coord = flip_coordinate(x_coord, y_coord, flip, self.display_size)
             self.agent_pos = (x_coord, y_coord)
+        elif all_agent_positions:
+            self.agent_pos = random.choice(
+                all_agent_positions)  # Randomly choose an agent position from available 'A' and 'B' spots
         else:
-            self.agent_pos = random.choice(self.empty_list)
+            self.agent_pos = random.choice(empty_list)
 
         self.agent_dir = flip_direction(rotate_direction(self.agent_start_dir, image_direction), flip)
+
+        # Handle key placement only if rand_pos_layout is provided
+        all_key_positions = key_positions + shared_positions  # Include 'B' positions for key placement
+        if self.rand_pos_layout:
+            doors = [obj for obj in self.grid.grid if isinstance(obj, Door)]
+            door_colours = {door.color for door in doors}
+
+            if len(doors) > len(all_key_positions):
+                raise ValueError("More doors than available positions for keys.")
+
+            for door in doors:
+                # Randomly assign a key to a matching door's colour
+                if all_key_positions:
+                    key_pos = random.choice(all_key_positions)  # Choose a random key position, including 'B'
+                    # Ensure that the key is not placed at the same position as the agent
+                    while key_pos == self.agent_pos:
+                        if all_key_positions:
+                            key_pos = random.choice(all_key_positions)
+                        else:
+                            raise ValueError(f"No available key position for door with colour {door.color}.")
+                    all_key_positions.remove(key_pos)  # Remove this position from available key positions
+                    key_obj = Key(door.color)  # Create a key with the door's colour
+                    self.grid.set(key_pos[0], key_pos[1], key_obj)  # Place the key in the corresponding position
+                else:
+                    raise ValueError(f"No available key position for door with colour {door.color}.")
+
+        # Handle goal placement if there are any 'G' positions
+        if goal_positions:
+            goal_pos = random.choice(goal_positions)  # Randomly choose a goal position
+            # Ensure that the goal is not placed at the same position as the agent or the key
+            while goal_pos == self.agent_pos or goal_pos in key_positions:
+                if goal_positions:
+                    goal_pos = random.choice(goal_positions)
+                else:
+                    raise ValueError("No available goal positions.")
+            goal_obj = Goal()  # Assuming you have a Goal object to set as the goal
+            self.grid.set(goal_pos[0], goal_pos[1], goal_obj)  # Place the goal at the chosen position
+
+    # def _gen_grid(self, width: int, height: int) -> None:
+    #     """
+    #     Generates the grid for the environment based on the layout specified in the text file.
+    #     """
+    #     self.grid = Grid(width, height)
+    #     for x in range(width):
+    #         for y in range(height):
+    #             self.grid.set(x, y, Wall())
+    #     free_width = self.display_size - len(self.layout[0])
+    #     free_height = self.display_size - len(self.layout)
+    #     if self.display_mode == "middle":
+    #         anchor_x = free_width // 2
+    #         anchor_y = free_height // 2
+    #     elif self.display_mode == "random":
+    #         if free_width > 0:
+    #             anchor_x = random.choice(list(range(free_width)))
+    #         else:
+    #             anchor_x = 0
+    #         if free_height > 0:
+    #             anchor_y = random.choice(list(range(free_height)))
+    #         else:
+    #             anchor_y = 0
+    #     else:
+    #         raise ValueError("Invalid display mode.")
+    #     if self.random_rotate:
+    #         image_direction = random.choice([0, 1, 2, 3])
+    #     else:
+    #         image_direction = 0
+    #     if self.random_flip:
+    #         flip = random.choice([0, 1])
+    #     else:
+    #         flip = 0
+    #
+    #     self.empty_list = []
+    #     for y, (obj_line, colour_line) in enumerate(zip(self.layout, self.colour_layout)):
+    #         for x, (char, color_char) in enumerate(zip(obj_line, colour_line)):
+    #             colour = self.char_to_colour(color_char)
+    #             obj = self.char_to_object(char, colour)
+    #             if obj is not None:
+    #                 obj.cur_pos = (x, y)  # to set the correct position og the obj
+    #             x_coord, y_coord = anchor_x + x, anchor_y + y
+    #             x_coord, y_coord = rotate_coordinate(x_coord, y_coord, image_direction, self.display_size)
+    #             x_coord, y_coord = flip_coordinate(x_coord, y_coord, flip, self.display_size)
+    #             self.grid.set(x_coord, y_coord, obj)
+    #             if obj is None:
+    #                 self.empty_list.append((x_coord, y_coord))
+    #
+    #     # update agent's coordinate
+    #     if self.agent_start_pos is not None:
+    #         x_coord, y_coord = anchor_x + self.agent_start_pos[0], anchor_y + self.agent_start_pos[1]
+    #         x_coord, y_coord = rotate_coordinate(x_coord, y_coord, image_direction, self.display_size)
+    #         x_coord, y_coord = flip_coordinate(x_coord, y_coord, flip, self.display_size)
+    #         self.agent_pos = (x_coord, y_coord)
+    #     else:
+    #         self.agent_pos = random.choice(self.empty_list)
+    #
+    #     self.agent_dir = flip_direction(rotate_direction(self.agent_start_dir, image_direction), flip)
 
     def reset(
         self,
@@ -917,15 +1049,15 @@ def flip_direction(direction, flip_mode):
 
 if __name__ == "__main__":
     env = CustomEnv(
-        txt_file_path=None,
-        rand_gen_shape=(7, 7),
+        txt_file_path='./maps/rand_door_key.txt',
+        rand_gen_shape=None,
         display_size=None,
         display_mode="random",
         random_rotate=True,
         random_flip=True,
         custom_mission="Find the key and open the door.",
         render_mode="human",
-        add_random_door_key=True,
+        add_random_door_key=False,
     )
     manual_control = ManualControl(env)  # Allows manual control for testing and visualization
     manual_control.start()  # Start the manual control interface
