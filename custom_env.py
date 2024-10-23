@@ -75,12 +75,15 @@ class CustomEnv(MiniGridEnv):
 
         self.random_layout = False
         if self.txt_file_path:
-            self.layout, self.colour_layout = self.read_file()
+            # self.layout, self.colour_layout = self.read_file()
+            self.layout, self.colour_layout, self.rand_pos_layout = self._read_file()
             if self.add_random_door_key:
                 warnings.warn("Random door key will not be added, since using settled map.")
         else:
             self.random_layout = True
             self.layout, self.colour_layout = self.generate_random_maze(random_door_key=self.add_random_door_key)
+
+        self.rand_pos_layout = None
 
         # Initialize the MiniGrid environment with the determined size
         super().__init__(
@@ -269,6 +272,52 @@ class CustomEnv(MiniGridEnv):
                 layout.append(line)
                 colour_layout.append(colour_line)
         return layout, colour_layout
+
+    def _read_file(self) -> Tuple[
+        List[List[Optional[WorldObj]]], List[List[Optional[str]]], Optional[List[List[Optional[str]]]]]:
+        layout = []
+        colour_layout = []
+        rand_pos_layout = None
+
+        with open(self.txt_file_path, 'r') as file:
+            sections = file.read().split('\n\n')  # Split the file into sections
+
+            if len(sections) not in (2, 3):
+                raise ValueError("File must contain either two or three sections separated by empty lines.")
+
+            # Extract the object and colour layouts
+            layout_lines = sections[0].strip().split('\n')
+            colour_lines = sections[1].strip().split('\n')
+
+            # Ensure the object and colour matrices are the same size
+            if len(layout_lines) != len(colour_lines) or any(
+                    len(layout) != len(colour) for layout, colour in zip(layout_lines, colour_lines)):
+                raise ValueError("Object and colour matrices must have the same size.")
+
+            # Parse the layout and colour lines
+            for y, (layout_line, colour_line) in enumerate(zip(layout_lines, colour_lines)):
+                layout_row = []
+                colour_row = []
+                for x, (char, colour_char) in enumerate(zip(layout_line, colour_line)):
+                    layout_row.append(char)
+                    colour_row.append(colour_char)
+                layout.append(layout_row)
+                colour_layout.append(colour_row)
+
+            # If a third section (rand_pos layout) exists, process it
+            if len(sections) == 3:
+                rand_pos_lines = sections[2].strip().split('\n')
+
+                # Ensure the rand_pos matrix is the same size as the object and colour matrices
+                if len(rand_pos_lines) != len(layout_lines) or any(
+                        len(rand_pos) != len(layout) for rand_pos, layout in zip(rand_pos_lines, layout_lines)):
+                    raise ValueError("The rand_pos matrix must have the same size as the object and colour matrices.")
+
+                rand_pos_layout = []
+                for rand_pos_line in rand_pos_lines:
+                    rand_pos_layout.append([char for char in rand_pos_line])
+
+        return layout, colour_layout, rand_pos_layout
 
     def generate_random_maze(self, random_door_key=True) -> Tuple[List[List[str]], List[List[str]]]:
         width, height = self.rand_gen_shape
@@ -743,7 +792,7 @@ class CustomEnv(MiniGridEnv):
         Returns:
             Optional[str]: The name of the color, or None if the character is not recognized.
         """
-        color_map = {'R': 'red', 'G': 'green', 'B': 'blue', 'P': 'purple', 'Y': 'yellow', 'G': 'grey'}
+        color_map = {'R': 'red', 'G': 'green', 'B': 'blue', 'P': 'purple', 'Y': 'yellow', 'E': 'grey', '_': '_'}
         return color_map.get(char.upper(), None)
 
     def char_to_object(self, char: str, color: str) -> Optional[WorldObj]:
