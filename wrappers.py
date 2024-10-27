@@ -15,10 +15,10 @@ class FullyObsSB3MLPWrapper(FullyObsWrapper):
         self.to_print = to_print
 
         # Initialise separate OneHotEncoders for each feature
-        self.object_encoder = OneHotEncoder(categories=[range(len(OBJECT_TO_IDX))], sparse=False)
-        self.colour_encoder = OneHotEncoder(categories=[range(len(COLOR_TO_IDX))], sparse=False)
+        self.object_encoder = OneHotEncoder(categories=[range(len(OBJECT_TO_IDX))], sparse_output=False)
+        self.colour_encoder = OneHotEncoder(categories=[range(len(COLOR_TO_IDX))], sparse_output=False)
         # the state value can either be the state of the doors or direction of the agent.
-        self.state_encoder = OneHotEncoder(categories=[range(max(len(STATE_TO_IDX), 4))], sparse=False)
+        self.state_encoder = OneHotEncoder(categories=[range(max(len(STATE_TO_IDX), 4))], sparse_output=False)
         # direction_encoder = OneHotEncoder(categories=[range(4)], sparse=False)
 
         # Fit each encoder to its corresponding range
