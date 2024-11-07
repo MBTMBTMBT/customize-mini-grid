@@ -1,4 +1,7 @@
+import random
+
 import numpy as np
+from matplotlib import pyplot as plt
 from minigrid.wrappers import FullyObsWrapper
 from minigrid.core.constants import OBJECT_TO_IDX, COLOR_TO_IDX, STATE_TO_IDX
 from sklearn.preprocessing import OneHotEncoder
@@ -295,6 +298,31 @@ class FullyObsImageWrapper(FullyObsSB3MLPWrapper):
         return image, reward, done, truncated, info
 
 
+class RandomChannelSwapWrapper(FullyObsImageWrapper):
+    def __init__(self, env: CustomEnv, seed=None, to_print=False):
+        super().__init__(env, to_print)
+        self.seed = seed
+
+    def observation(self, obs):
+        image = super().observation(obs)
+
+        if self.seed is not None:
+            random.seed(self.seed)
+            np.random.seed(self.seed)
+
+        channels = np.arange(image.shape[0])
+        np.random.shuffle(channels)
+        image = image[channels, :, :]
+
+        if self.to_print:
+            print("Randomly Swapped Image Array:")
+            print(image)
+            print(f"Mission: {obs['mission']}")
+            print(f"Direction: {obs['direction']}")
+
+        return image
+
+
 if __name__ == '__main__':
     from custom_env import CustomEnv
     from minigrid.manual_control import ManualControl
@@ -310,34 +338,26 @@ if __name__ == '__main__':
         custom_mission="Explore and interact with objects.",
         max_steps=128,
     )
-    env = FullyObsSB3MLPWrapper(env, to_print=False)
+    env = RandomChannelSwapWrapper(env, to_print=False)
     obs, info = env.reset()
-    env = CustomEnv(
-        txt_file_path=None,
-        rand_gen_shape=(4, 4),
-        display_size=4,
-        display_mode='random',
-        random_rotate=True,
-        random_flip=True,
-        custom_mission="Explore and interact with objects.",
-        max_steps=128,
-    )
-    env = FullyObsImageWrapper(env, to_print=False)
-    obs, info = env.reset()
-    # test_encode_decode_consistency(env, num_epochs=10, num_steps=10000)
+    # Create a loop to step through the environment
+    while True:
+        # Sample a random action
+        action = env.action_space.sample()
 
-    # manual_control = ManualControl(env)  # Allows manual control for testing and visualization
-    # manual_control.start()  # Start the manual control interface
+        # Take a step in the environment
+        obs, reward, done, truncated, info = env.step(action)
 
-    # # Reset the environment to see initial observation
-    # obs, info = env.reset()
-    #
-    # # Print the processed observation shape and content
-    # print(f"Processed observation shape: {obs.shape}")
-    # print(f"Processed observation:\n{obs}")
-    #
-    # from minigrid.wrappers import ImgObsWrapper
-    # from stable_baselines3 import PPO
-    #
-    # model = PPO("MlpPolicy", env, verbose=1)
-    # model.learn(int(2e4))
+        # Convert observation to numpy format for plotting
+        # Ensure it's transposed back to (height, width, channels)
+        image = np.transpose(obs, (1, 2, 0))
+
+        # Plot the image
+        plt.imshow(image)
+        plt.title("Environment Observation")
+        plt.axis("off")  # Turn off axis for clarity
+        plt.show()
+
+        # Break the loop if the environment is done
+        if done:
+            obs, info = env.reset()
