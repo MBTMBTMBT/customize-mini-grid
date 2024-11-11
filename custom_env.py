@@ -12,6 +12,19 @@ from minigrid.core.constants import OBJECT_TO_IDX, COLOR_TO_IDX, STATE_TO_IDX, T
 from PIL import Image, ImageDraw, ImageFont
 
 
+def _door_toggle_any_colour(door, env, pos):
+    # If the player has the right key to open the door
+    if door.is_locked:
+        if isinstance(env.carrying, Key):
+            door.is_locked = False
+            door.is_open = True
+            return True
+        return False
+
+    door.is_open = not door.is_open
+    return True
+
+
 class CustomEnv(MiniGridEnv):
     """
     A custom MiniGrid environment that loads its layout and object properties from a text file.
@@ -38,6 +51,7 @@ class CustomEnv(MiniGridEnv):
             max_steps: Optional[int] = 100000,
             render_carried_objs: bool = True,
             add_random_door_key: bool = False,
+            any_key_opens_the_door: bool = False,
             **kwargs,
     ) -> None:
         """
@@ -102,6 +116,8 @@ class CustomEnv(MiniGridEnv):
         self.tile_size = 16
 
         self.render_carried_objs = render_carried_objs
+
+        self.any_key_opens_the_door = any_key_opens_the_door
 
     def get_frame(
         self,
@@ -821,7 +837,10 @@ class CustomEnv(MiniGridEnv):
                 was_open = False
                 if fwd_cell.type == "door" and fwd_cell.is_open:
                     was_open = True
-                fwd_cell.toggle(self, fwd_pos)
+                if fwd_cell.type == "door" and self.any_key_opens_the_door:
+                    _door_toggle_any_colour(fwd_cell, self, fwd_pos)
+                else:
+                    fwd_cell.toggle(self, fwd_pos)
                 if fwd_cell.type == "door":
                     if fwd_cell.is_open:
                         if not was_open:
