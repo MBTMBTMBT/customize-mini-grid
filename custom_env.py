@@ -588,7 +588,8 @@ class CustomEnv(MiniGridEnv):
         # Handle agent placement
         all_agent_positions = agent_positions + shared_positions  # Include 'B' positions for agent placement
         if self.agent_start_pos is not None:
-            warnings.warn("Agent start position is provided, ignoring 'A' positions.")
+            if self.rand_pos_layout:
+                warnings.warn("Agent start position is provided, ignoring 'A' positions.")
             x_coord, y_coord = anchor_x + self.agent_start_pos[0], anchor_y + self.agent_start_pos[1]
             x_coord, y_coord = rotate_coordinate(x_coord, y_coord, image_direction, self.display_size)
             x_coord, y_coord = flip_coordinate(x_coord, y_coord, flip, self.display_size)
