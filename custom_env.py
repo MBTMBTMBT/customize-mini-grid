@@ -1,6 +1,9 @@
 import random
 import warnings
+from enum import IntEnum
 from typing import Optional, Tuple, List, Dict, Any, SupportsFloat
+
+from gymnasium import spaces
 from minigrid.core.grid import Grid
 from minigrid.core.mission import MissionSpace
 from minigrid.core.world_object import *
@@ -10,6 +13,14 @@ from minigrid.minigrid_env import MiniGridEnv
 from gymnasium.core import ActType, ObsType
 from minigrid.core.constants import OBJECT_TO_IDX, COLOR_TO_IDX, STATE_TO_IDX, TILE_PIXELS
 from PIL import Image, ImageDraw, ImageFont
+
+
+class SimpleActions(IntEnum):
+    # Turn left, turn right, move forward
+    left = 0
+    right = 1
+    forward = 2
+    uni_toggle = 3
 
 
 def _door_toggle_any_colour(door, env, pos):
@@ -106,6 +117,9 @@ class CustomEnv(MiniGridEnv):
             max_steps=max_steps,
             **kwargs,
         )
+        self.actions = SimpleActions
+        self.action_space = spaces.Discrete(len(self.actions))
+
         self.agent_start_pos = agent_start_pos
         self.agent_start_dir = agent_start_dir
         self.mission = custom_mission
@@ -639,64 +653,6 @@ class CustomEnv(MiniGridEnv):
             goal_obj = Goal()  # Assuming you have a Goal object to set as the goal
             self.grid.set(goal_pos[0], goal_pos[1], goal_obj)  # Place the goal at the chosen position
 
-    # def _gen_grid(self, width: int, height: int) -> None:
-    #     """
-    #     Generates the grid for the environment based on the layout specified in the text file.
-    #     """
-    #     self.grid = Grid(width, height)
-    #     for x in range(width):
-    #         for y in range(height):
-    #             self.grid.set(x, y, Wall())
-    #     free_width = self.display_size - len(self.layout[0])
-    #     free_height = self.display_size - len(self.layout)
-    #     if self.display_mode == "middle":
-    #         anchor_x = free_width // 2
-    #         anchor_y = free_height // 2
-    #     elif self.display_mode == "random":
-    #         if free_width > 0:
-    #             anchor_x = random.choice(list(range(free_width)))
-    #         else:
-    #             anchor_x = 0
-    #         if free_height > 0:
-    #             anchor_y = random.choice(list(range(free_height)))
-    #         else:
-    #             anchor_y = 0
-    #     else:
-    #         raise ValueError("Invalid display mode.")
-    #     if self.random_rotate:
-    #         image_direction = random.choice([0, 1, 2, 3])
-    #     else:
-    #         image_direction = 0
-    #     if self.random_flip:
-    #         flip = random.choice([0, 1])
-    #     else:
-    #         flip = 0
-    #
-    #     self.empty_list = []
-    #     for y, (obj_line, colour_line) in enumerate(zip(self.layout, self.colour_layout)):
-    #         for x, (char, color_char) in enumerate(zip(obj_line, colour_line)):
-    #             colour = self.char_to_colour(color_char)
-    #             obj = self.char_to_object(char, colour)
-    #             if obj is not None:
-    #                 obj.cur_pos = (x, y)  # to set the correct position og the obj
-    #             x_coord, y_coord = anchor_x + x, anchor_y + y
-    #             x_coord, y_coord = rotate_coordinate(x_coord, y_coord, image_direction, self.display_size)
-    #             x_coord, y_coord = flip_coordinate(x_coord, y_coord, flip, self.display_size)
-    #             self.grid.set(x_coord, y_coord, obj)
-    #             if obj is None:
-    #                 self.empty_list.append((x_coord, y_coord))
-    #
-    #     # update agent's coordinate
-    #     if self.agent_start_pos is not None:
-    #         x_coord, y_coord = anchor_x + self.agent_start_pos[0], anchor_y + self.agent_start_pos[1]
-    #         x_coord, y_coord = rotate_coordinate(x_coord, y_coord, image_direction, self.display_size)
-    #         x_coord, y_coord = flip_coordinate(x_coord, y_coord, flip, self.display_size)
-    #         self.agent_pos = (x_coord, y_coord)
-    #     else:
-    #         self.agent_pos = random.choice(self.empty_list)
-    #
-    #     self.agent_dir = flip_direction(rotate_direction(self.agent_start_dir, image_direction), flip)
-
     def reset(
         self,
         *,
@@ -814,42 +770,77 @@ class CustomEnv(MiniGridEnv):
             # if fwd_cell is not None and (fwd_cell.type == "wall" or fwd_cell.type == "door" and not fwd_cell.is_open):
             #     reward -= 0.05
 
-        # Pick up an object
-        elif action == self.actions.pickup:
-            if fwd_cell and fwd_cell.can_pickup():
-                if self.carrying is None or self.carrying == 0:
+        # # Pick up an object
+        # elif action == self.actions.pickup:
+        #     if fwd_cell and fwd_cell.can_pickup():
+        #         if self.carrying is None or self.carrying == 0:
+        #             self.carrying = fwd_cell
+        #             self.carrying.cur_pos = np.array([-1, -1])
+        #             self.grid.set(fwd_pos[0], fwd_pos[1], None)
+        #             reward += 0.1
+        #             # print("Key picked up!")
+        #
+        # # Drop an object
+        # elif action == self.actions.drop:
+        #     if not fwd_cell and self.carrying:
+        #         self.grid.set(fwd_pos[0], fwd_pos[1], self.carrying)
+        #         self.carrying.cur_pos = fwd_pos
+        #         self.carrying = None
+        #         reward -= 0.1
+        #
+        # # Toggle/activate an object
+        # elif action == self.actions.toggle:
+        #     if fwd_cell:
+        #         was_open = False
+        #         if fwd_cell.type == "door" and fwd_cell.is_open:
+        #             was_open = True
+        #         if fwd_cell.type == "door" and self.any_key_opens_the_door:
+        #             _door_toggle_any_colour(fwd_cell, self, fwd_pos)
+        #         else:
+        #             fwd_cell.toggle(self, fwd_pos)
+        #         if fwd_cell.type == "door":
+        #             if fwd_cell.is_open:
+        #                 if not was_open:
+        #                     reward += 0.1
+        #                     # print("Door is open!")
+        #             else:
+        #                 if was_open:
+        #                     reward -= 0.1
+
+        # Unified toggle action (uni_toggle)
+        elif action == self.actions.uni_toggle:
+            # Check if there's a cell in the forward direction
+            if fwd_cell:
+                # If carrying nothing and forward cell can be picked up, perform pickup
+                if self.carrying is None and fwd_cell.can_pickup():
                     self.carrying = fwd_cell
                     self.carrying.cur_pos = np.array([-1, -1])
                     self.grid.set(fwd_pos[0], fwd_pos[1], None)
                     reward += 0.1
-                    # print("Key picked up!")
+                    # print("Item picked up!")
 
-        # Drop an object
-        elif action == self.actions.drop:
-            if not fwd_cell and self.carrying:
-                self.grid.set(fwd_pos[0], fwd_pos[1], self.carrying)
-                self.carrying.cur_pos = fwd_pos
-                self.carrying = None
-                reward -= 0.1
+                # If carrying an object and forward cell is empty, perform drop
+                elif self.carrying and not fwd_cell:
+                    self.grid.set(fwd_pos[0], fwd_pos[1], self.carrying)
+                    self.carrying.cur_pos = fwd_pos
+                    self.carrying = None
+                    reward -= 0.1
+                    # print("Item dropped!")
 
-        # Toggle/activate an object
-        elif action == self.actions.toggle:
-            if fwd_cell:
-                was_open = False
-                if fwd_cell.type == "door" and fwd_cell.is_open:
-                    was_open = True
-                if fwd_cell.type == "door" and self.any_key_opens_the_door:
-                    _door_toggle_any_colour(fwd_cell, self, fwd_pos)
-                else:
-                    fwd_cell.toggle(self, fwd_pos)
-                if fwd_cell.type == "door":
-                    if fwd_cell.is_open:
-                        if not was_open:
-                            reward += 0.1
-                            # print("Door is open!")
+                # If forward cell is a door, perform toggle
+                elif fwd_cell.type == "door":
+                    was_open = fwd_cell.is_open
+                    if self.any_key_opens_the_door:
+                        _door_toggle_any_colour(fwd_cell, self, fwd_pos)
                     else:
-                        if was_open:
-                            reward -= 0.1
+                        fwd_cell.toggle(self, fwd_pos)
+                    # Update rewards based on door status
+                    if fwd_cell.is_open and not was_open:
+                        reward += 0.1
+                        # print("Door is open!")
+                    elif not fwd_cell.is_open and was_open:
+                        reward -= 0.1
+                        # print("Door is closed!")
 
         # Done action (not used by default)
         elif action == self.actions.done:
