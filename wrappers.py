@@ -329,12 +329,12 @@ if __name__ == '__main__':
 
     # Initialize the environment and wrapper
     env = CustomEnv(
-        txt_file_path=None,
-        rand_gen_shape=(4, 4),
-        display_size=4,
-        display_mode='random',
-        random_rotate=True,
-        random_flip=True,
+        txt_file_path=f"../maps/small_maze.txt",
+        rand_gen_shape=None,
+        display_size=5,
+        display_mode='middle',
+        random_rotate=False,
+        random_flip=False,
         custom_mission="Explore and interact with objects.",
         max_steps=128,
     )
