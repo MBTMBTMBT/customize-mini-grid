@@ -63,6 +63,7 @@ class CustomEnv(MiniGridEnv):
             render_carried_objs: bool = True,
             add_random_door_key: bool = False,
             any_key_opens_the_door: bool = False,
+            rand_colours=None,
             **kwargs,
     ) -> None:
         """
@@ -70,6 +71,8 @@ class CustomEnv(MiniGridEnv):
 
         If 'size' is not specified, it determines the size based on the content of the given text file.
         """
+        if rand_colours is None:
+            rand_colours = ['R', 'G', 'B', 'P', 'Y', 'E']
         self.txt_file_path = txt_file_path
         self.rand_gen_shape = rand_gen_shape
 
@@ -132,6 +135,8 @@ class CustomEnv(MiniGridEnv):
         self.render_carried_objs = render_carried_objs
 
         self.any_key_opens_the_door = any_key_opens_the_door
+
+        self.rand_colours = rand_colours
 
     def get_frame(
         self,
@@ -559,7 +564,7 @@ class CustomEnv(MiniGridEnv):
                     zip(self.layout, self.colour_layout, self.rand_pos_layout)):
                 for x, (char, color_char, rand_pos_char) in enumerate(zip(obj_line, colour_line, rand_pos_line)):
                     if color_char == '_':  # Handle random colour case
-                        color_char = random.choice(['R', 'G', 'B', 'P', 'Y', 'E'])
+                        color_char = random.choice(self.rand_colours)
                     colour = self.char_to_colour(color_char)
 
                     obj = self.char_to_object(char, colour)
